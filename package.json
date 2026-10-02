@@ -1,0 +1,22 @@
+{
+  "name": "@bharatyatra/admin",
+  "version": "0.1.0",
+  "private": true,
+  "scripts": {
+    "dev": "next dev --webpack -p 3001",
+    "build": "next build",
+    "start": "next start -p 3001",
+    "test": "node --test",
+    "admin:setup": "node scripts/setup-admin.js"
+  },
+  "dependencies": {
+    "@bharatyatra/admin-auth": "*",
+    "dotenv": "^16.4.7",
+    "next": "^16.1.0",
+    "react": "^19.2.3",
+    "react-dom": "^19.2.3"
+  },
+  "engines": {
+    "node": ">=22.12.0"
+  }
+}

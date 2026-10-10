@@ -15,6 +15,12 @@ export default function AppearanceManager({ initialMedia }) {
   const [navbarFile, setNavbarFile] = useState(null);
   const [navbarPreview, setNavbarPreview] = useState(initialMedia['navbar']?.public_url || null);
 
+  const [logoFile, setLogoFile] = useState(null);
+  const [logoPreview, setLogoPreview] = useState(initialMedia['logo']?.public_url || null);
+  
+  const [logoCompactFile, setLogoCompactFile] = useState(null);
+  const [logoCompactPreview, setLogoCompactPreview] = useState(initialMedia['logo-compact']?.public_url || null);
+
   const handleHeroChange = (e) => {
     const file = e.target.files[0];
     if (file) {
@@ -54,6 +60,24 @@ export default function AppearanceManager({ initialMedia }) {
     }
   };
 
+  const handleLogoChange = (e) => {
+    const file = e.target.files[0];
+    if (file) {
+      setLogoFile(file);
+      setLogoPreview(URL.createObjectURL(file));
+      setError('');
+    }
+  };
+  
+  const handleLogoCompactChange = (e) => {
+    const file = e.target.files[0];
+    if (file) {
+      setLogoCompactFile(file);
+      setLogoCompactPreview(URL.createObjectURL(file));
+      setError('');
+    }
+  };
+
   const saveSlot = async (slot, file, currentUrl) => {
     if (!file && currentUrl) return; // nothing to update if no new file
     if (file) {
@@ -83,10 +107,14 @@ export default function AppearanceManager({ initialMedia }) {
       if (heroFile) await saveSlot('hero', heroFile, heroPreview);
       if (promoFile) await saveSlot('explore-promo', promoFile, promoPreview);
       if (navbarFile) await saveSlot('navbar', navbarFile, navbarPreview);
+      if (logoFile) await saveSlot('logo', logoFile, logoPreview);
+      if (logoCompactFile) await saveSlot('logo-compact', logoCompactFile, logoCompactPreview);
       setNotice('Website appearance updated successfully.');
       setHeroFile(null);
       setPromoFile(null);
       setNavbarFile(null);
+      setLogoFile(null);
+      setLogoCompactFile(null);
     } catch(err) {
       setError(err.message || 'Failed to update appearance.');
     } finally {
@@ -100,6 +128,24 @@ export default function AppearanceManager({ initialMedia }) {
       {notice && <p className="success" role="status" style={{ gridColumn: '1/-1' }}>{notice}</p>}
 
       <div className="editor-panel" style={{ gridColumn: '1 / -1' }}>
+        <div className="editor-heading">
+          <h2>Branding (Logos)</h2>
+        </div>
+        <div style={{ marginTop: '1rem', padding: '1rem', border: '1px solid var(--line)', borderRadius: '12px', display: 'flex', flexWrap: 'wrap', gap: '2rem' }}>
+          <div style={{ flex: 1, minWidth: '250px' }}>
+             <h3>Primary Logo</h3>
+             {logoPreview ? <img src={logoPreview} alt="Logo" style={{ maxHeight: '60px', marginBottom: '1rem', background: '#f5f5f5', padding: '10px' }} /> : <p>Default horizontal logo</p>}
+             <input type="file" accept="image/*" onChange={handleLogoChange} />
+          </div>
+          <div style={{ flex: 1, minWidth: '250px' }}>
+             <h3>Compact Logo</h3>
+             {logoCompactPreview ? <img src={logoCompactPreview} alt="Compact Logo" style={{ maxHeight: '60px', marginBottom: '1rem', background: '#f5f5f5', padding: '10px' }} /> : <p>Default compact logo</p>}
+             <input type="file" accept="image/*" onChange={handleLogoCompactChange} />
+          </div>
+        </div>
+      </div>
+
+      <div className="editor-panel" style={{ gridColumn: '1 / -1', marginTop: '1rem' }}>
         <div className="editor-heading">
           <h2>Navbar Background Image</h2>
         </div>
@@ -173,17 +219,21 @@ export default function AppearanceManager({ initialMedia }) {
       </div>
 
       <div style={{ gridColumn: '1/-1', marginTop: '1rem', display: 'flex', gap: '1rem' }}>
-        <button type="submit" className="button primary" disabled={busy || (!heroFile && !promoFile && !navbarFile)} style={{ fontSize: '1rem', padding: '0.75rem 2rem' }}>
+        <button type="submit" className="button primary" disabled={busy || (!heroFile && !promoFile && !navbarFile && !logoFile && !logoCompactFile)} style={{ fontSize: '1rem', padding: '0.75rem 2rem' }}>
           {busy ? 'Saving...' : 'Save Appearance Changes'}
         </button>
-        {(heroFile || promoFile || navbarFile) && (
+        {(heroFile || promoFile || navbarFile || logoFile || logoCompactFile) && (
           <button type="button" className="button" disabled={busy} onClick={() => {
             setHeroFile(null);
             setPromoFile(null);
             setNavbarFile(null);
+            setLogoFile(null);
+            setLogoCompactFile(null);
             setHeroPreview(initialMedia['hero']?.public_url || null);
             setPromoPreview(initialMedia['explore-promo']?.public_url || null);
             setNavbarPreview(initialMedia['navbar']?.public_url || null);
+            setLogoPreview(initialMedia['logo']?.public_url || null);
+            setLogoCompactPreview(initialMedia['logo-compact']?.public_url || null);
             setError('');
           }}>
             Cancel

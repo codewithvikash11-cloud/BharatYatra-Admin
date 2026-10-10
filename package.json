@@ -4,7 +4,7 @@
   "private": true,
   "scripts": {
     "dev": "next dev --webpack -p 3001",
-    "build": "next build",
+    "build": "npx prisma generate && next build",
     "start": "next start -p 3001",
     "test": "node --test",
     "admin:setup": "node scripts/setup-admin.js"

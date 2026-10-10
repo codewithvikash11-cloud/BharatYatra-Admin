@@ -1,0 +1,230 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider  = "postgresql"
+  url       = env("DATABASE_URL")
+  directUrl = env("DIRECT_URL")
+}
+
+/// This table contains check constraints and requires additional setup for migrations. Visit https://pris.ly/d/check-constraints for more info.
+/// This model contains row level security and requires additional setup for migrations. Visit https://pris.ly/d/row-level-security for more info.
+model articles {
+  id                 String    @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  slug               String    @unique
+  title_en           String
+  title_hi           String?
+  excerpt_en         String?
+  excerpt_hi         String?
+  body_en            String?
+  body_hi            String?
+  author_name        String?
+  seo_title_en       String?
+  seo_title_hi       String?
+  seo_description_en String?
+  seo_description_hi String?
+  status             String    @default("DRAFT")
+  published_at       DateTime? @db.Timestamptz(6)
+  created_at         DateTime  @default(now()) @db.Timestamptz(6)
+  updated_at         DateTime  @default(now()) @db.Timestamptz(6)
+
+  @@index([status, published_at(sort: Desc)], map: "articles_status_published_idx")
+}
+
+/// This table contains check constraints and requires additional setup for migrations. Visit https://pris.ly/d/check-constraints for more info.
+/// This model contains row level security and requires additional setup for migrations. Visit https://pris.ly/d/row-level-security for more info.
+model attractions {
+  id              String            @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  destination_id  String            @db.Uuid
+  slug            String
+  name_en         String
+  name_hi         String?
+  description_en  String?
+  description_hi  String?
+  category        String?
+  latitude        Float?
+  longitude       Float?
+  visiting_hours  String?
+  entry_fee_note  String?
+  source_url      String?
+  verified_at     DateTime?         @db.Date
+  status          String            @default("DRAFT")
+  published_at    DateTime?         @db.Timestamptz(6)
+  created_at      DateTime          @default(now()) @db.Timestamptz(6)
+  updated_at      DateTime          @default(now()) @db.Timestamptz(6)
+  destinations    destinations      @relation(fields: [destination_id], references: [id], onDelete: Cascade, onUpdate: NoAction)
+  itinerary_stops itinerary_stops[]
+
+  @@unique([destination_id, slug])
+  @@index([destination_id, status], map: "attractions_destination_status_idx")
+}
+
+/// This table contains check constraints and requires additional setup for migrations. Visit https://pris.ly/d/check-constraints for more info.
+/// This model contains row level security and requires additional setup for migrations. Visit https://pris.ly/d/row-level-security for more info.
+model destinations {
+  id             String        @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  slug           String        @unique
+  name_en        String
+  name_hi        String?
+  summary_en     String?
+  summary_hi     String?
+  description_en String?
+  description_hi String?
+  state_name     String?
+  district_name  String?
+  state_id       String?       @db.Uuid
+  district_id    String?       @db.Uuid
+  tehsil_id      String?       @db.Uuid
+  latitude       Float?
+  longitude      Float?
+  best_time_en   String?
+  best_time_hi   String?
+  status         String        @default("DRAFT")
+  published_at   DateTime?     @db.Timestamptz(6)
+  created_at     DateTime      @default(now()) @db.Timestamptz(6)
+  updated_at     DateTime      @default(now()) @db.Timestamptz(6)
+  attractions    attractions[]
+  itineraries    itineraries[]
+  states         states?       @relation(fields: [state_id], references: [id], onUpdate: NoAction)
+  districts      districts?    @relation(fields: [district_id], references: [id], onUpdate: NoAction)
+  tehsils        tehsils?      @relation(fields: [tehsil_id], references: [id], onUpdate: NoAction)
+
+  @@index([state_name], map: "destinations_state_idx")
+  @@index([status, slug])
+}
+
+/// This table contains check constraints and requires additional setup for migrations. Visit https://pris.ly/d/check-constraints for more info.
+/// This model contains row level security and requires additional setup for migrations. Visit https://pris.ly/d/row-level-security for more info.
+model itineraries {
+  id             String           @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  destination_id String?          @db.Uuid
+  slug           String           @unique
+  title_en       String
+  title_hi       String?
+  description_en String?
+  description_hi String?
+  duration_days  Int
+  status         String           @default("DRAFT")
+  published_at   DateTime?        @db.Timestamptz(6)
+  created_at     DateTime         @default(now()) @db.Timestamptz(6)
+  updated_at     DateTime         @default(now()) @db.Timestamptz(6)
+  destinations   destinations?    @relation(fields: [destination_id], references: [id], onUpdate: NoAction)
+  itinerary_days itinerary_days[]
+
+  @@index([destination_id, status], map: "itineraries_destination_status_idx")
+}
+
+/// This table contains check constraints and requires additional setup for migrations. Visit https://pris.ly/d/check-constraints for more info.
+/// This model contains row level security and requires additional setup for migrations. Visit https://pris.ly/d/row-level-security for more info.
+model itinerary_days {
+  id              String            @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  itinerary_id    String            @db.Uuid
+  day_number      Int
+  title_en        String?
+  title_hi        String?
+  notes_en        String?
+  notes_hi        String?
+  itineraries     itineraries       @relation(fields: [itinerary_id], references: [id], onDelete: Cascade, onUpdate: NoAction)
+  itinerary_stops itinerary_stops[]
+
+  @@unique([itinerary_id, day_number])
+  @@index([itinerary_id, day_number], map: "itinerary_days_itinerary_idx")
+}
+
+/// This model contains row level security and requires additional setup for migrations. Visit https://pris.ly/d/row-level-security for more info.
+model itinerary_stops {
+  id               String         @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  itinerary_day_id String         @db.Uuid
+  attraction_id    String?        @db.Uuid
+  sort_order       Int            @default(0)
+  custom_name_en   String?
+  custom_name_hi   String?
+  notes_en         String?
+  notes_hi         String?
+  attractions      attractions?   @relation(fields: [attraction_id], references: [id], onUpdate: NoAction)
+  itinerary_days   itinerary_days @relation(fields: [itinerary_day_id], references: [id], onDelete: Cascade, onUpdate: NoAction)
+
+  @@index([itinerary_day_id, sort_order], map: "itinerary_stops_day_idx")
+}
+
+/// This model contains row level security and requires additional setup for migrations. Visit https://pris.ly/d/row-level-security for more info.
+model media_assets {
+  id           String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  storage_path String   @unique
+  public_url   String?
+  alt_en       String?
+  alt_hi       String?
+  credit       String?
+  license      String?
+  width        Int?
+  height       Int?
+  created_at   DateTime @default(now()) @db.Timestamptz(6)
+}
+
+/// Administrative audit entries. Additive table created by the local admin audit migration.
+model admin_audit_logs {
+  id             String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  actor_user_id  String   @db.Uuid
+  action         String
+  entity_type    String
+  entity_id      String   @db.Uuid
+  previous_status String?
+  next_status    String?
+  changed_fields Json     @default("[]") @db.JsonB
+  created_at     DateTime @default(now()) @db.Timestamptz(6)
+
+  @@index([created_at(sort: Desc)], map: "admin_audit_logs_created_idx")
+  @@index([entity_type, entity_id, created_at(sort: Desc)], map: "admin_audit_logs_entity_idx")
+}
+
+model states {
+  id             String         @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  slug           String         @unique
+  name_en        String
+  name_hi        String?
+  type           String         @default("STATE")
+  description_en String?
+  description_hi String?
+  status         String         @default("DRAFT")
+  created_at     DateTime       @default(now()) @db.Timestamptz(6)
+  updated_at     DateTime       @default(now()) @db.Timestamptz(6)
+  districts      districts[]
+  destinations   destinations[]
+}
+
+model districts {
+  id             String         @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  state_id       String         @db.Uuid
+  slug           String
+  name_en        String
+  name_hi        String?
+  description_en String?
+  description_hi String?
+  status         String         @default("DRAFT")
+  created_at     DateTime       @default(now()) @db.Timestamptz(6)
+  updated_at     DateTime       @default(now()) @db.Timestamptz(6)
+  states         states         @relation(fields: [state_id], references: [id], onDelete: Cascade, onUpdate: NoAction)
+  tehsils        tehsils[]
+  destinations   destinations[]
+
+  @@unique([state_id, slug])
+}
+
+model tehsils {
+  id             String         @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  district_id    String         @db.Uuid
+  slug           String
+  name_en        String
+  name_hi        String?
+  local_label    String?
+  description_en String?
+  description_hi String?
+  status         String         @default("DRAFT")
+  created_at     DateTime       @default(now()) @db.Timestamptz(6)
+  updated_at     DateTime       @default(now()) @db.Timestamptz(6)
+  districts      districts      @relation(fields: [district_id], references: [id], onDelete: Cascade, onUpdate: NoAction)
+  destinations   destinations[]
+
+  @@unique([district_id, slug])
+}

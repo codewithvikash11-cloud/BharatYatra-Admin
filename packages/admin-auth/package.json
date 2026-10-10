@@ -1,0 +1,13 @@
+{
+  "name": "@bharatyatra/admin-auth",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "exports": "./src/index.js",
+  "scripts": {
+    "test": "node --test"
+  },
+  "dependencies": {
+    "bcryptjs": "^3.0.3"
+  }
+}

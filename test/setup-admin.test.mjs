@@ -5,7 +5,7 @@ import os from 'node:os';
 import path from 'node:path';
 import dotenv from 'dotenv';
 import bcrypt from 'bcryptjs';
-import { issueAdminSession, verifyAdminCredentials, verifyAdminSession } from '@bharatyatra/admin-auth';
+import { issueAdminSession, verifyAdminCredentials, verifyAdminSession } from '../lib/admin-auth.js';
 import { ADMIN_EMAIL, setupAdminCredentials, updateEnvContents } from '../scripts/setup-admin.js';
 
 test('updates only admin auth keys and preserves existing env entries and CRLF',()=>{

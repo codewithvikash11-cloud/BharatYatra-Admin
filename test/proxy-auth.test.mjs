@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { ADMIN_SESSION_COOKIE, createAdminActorId, issueAdminSession } from '@bharatyatra/admin-auth';
+import { ADMIN_SESSION_COOKIE, createAdminActorId, issueAdminSession } from '../lib/admin-auth.js';
 import { hasValidAdminSession } from '../lib/proxy-auth.mjs';
 
 const originalEmail=process.env.ADMIN_EMAIL;

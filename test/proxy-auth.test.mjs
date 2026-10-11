@@ -8,15 +8,15 @@ const originalSecret=process.env.ADMIN_SESSION_SECRET;
 process.env.ADMIN_EMAIL='admin@example.invalid';
 process.env.ADMIN_SESSION_SECRET='test-only-session-secret-which-is-long-enough';
 
-test('rejects unauthenticated dashboard requests',()=>{
-  assert.equal(hasValidAdminSession(undefined,process.env),false);
+test('rejects unauthenticated dashboard requests', async () => {
+  assert.equal(await hasValidAdminSession(undefined, process.env), false);
 });
 
-test('accepts protected dashboard requests carrying a valid admin session',()=>{
-  const principal={id:createAdminActorId(process.env.ADMIN_EMAIL),email:process.env.ADMIN_EMAIL,role:'admin'};
-  const token=issueAdminSession(principal,process.env);
-  assert.equal(hasValidAdminSession(token,process.env),true);
-  assert.equal(ADMIN_SESSION_COOKIE,'by_admin_session');
+test('accepts protected dashboard requests carrying a valid admin session', async () => {
+  const principal = { id: createAdminActorId(process.env.ADMIN_EMAIL), email: process.env.ADMIN_EMAIL, role: 'admin' };
+  const token = issueAdminSession(principal, process.env);
+  assert.equal(await hasValidAdminSession(token, process.env), true);
+  assert.equal(ADMIN_SESSION_COOKIE, 'by_admin_session');
 });
 
 test.after(()=>{

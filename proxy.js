@@ -1,6 +1,7 @@
 import { NextResponse } from 'next/server';
-import { ADMIN_SESSION_COOKIE } from '@bharatyatra/admin-auth';
 import { hasValidAdminSession } from './lib/proxy-auth.mjs';
+
+const ADMIN_SESSION_COOKIE = 'by_admin_session';
 
 export async function proxy(request){
   const response=NextResponse.next({request});
@@ -10,7 +11,7 @@ export async function proxy(request){
   response.headers.set('Permissions-Policy','camera=(), microphone=(), geolocation=()');
   if(request.nextUrl.pathname==='/')return response;
   const token=request.cookies.get(ADMIN_SESSION_COOKIE)?.value;
-  if(!hasValidAdminSession(token,process.env))return NextResponse.redirect(new URL('/',request.url));
+  if(!(await hasValidAdminSession(token,process.env)))return NextResponse.redirect(new URL('/',request.url));
   return response;
 }
 

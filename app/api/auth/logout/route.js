@@ -1,4 +1,4 @@
-import { ADMIN_SESSION_COOKIE, adminSessionCookieOptions } from '@bharatyatra/admin-auth';
+import { ADMIN_SESSION_COOKIE, adminSessionCookieOptions } from '../../../../lib/admin-auth.js';
 
 export async function POST(request) {
   const origin=request.headers.get('origin');

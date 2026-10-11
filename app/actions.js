@@ -7,7 +7,7 @@ import {
   createLoginRateLimiter,
   issueAdminSession,
   verifyAdminCredentials,
-} from '@bharatyatra/admin-auth';
+} from '../lib/admin-auth.js';
 
 const loginLimiter=createLoginRateLimiter();
 const LOGIN_ERROR='Invalid email or password. Try again later.';
@@ -18,7 +18,10 @@ export async function signInAction(_previous,formData){
   const requestHeaders=await headers();
   const clientKey=requestHeaders.get('x-forwarded-for')?.split(',')[0].trim()||requestHeaders.get('x-real-ip')||'unknown';
   if(loginLimiter.isBlocked(clientKey))return {error:LOGIN_ERROR};
-  const principal = { id: 'test-admin', email, role: 'ADMIN' };
+  
+  const principal = await verifyAdminCredentials(email, password, process.env);
+  if (!principal) return {error:LOGIN_ERROR};
+  
   const token=issueAdminSession(principal,process.env);
   const cookieStore=await cookies();
   cookieStore.set(ADMIN_SESSION_COOKIE,token,adminSessionCookieOptions());

@@ -8,7 +8,7 @@ import {
   issueAdminSession,
   verifyAdminCredentials,
   verifyAdminSession,
-} from '@bharatyatra/admin-auth';
+} from '../lib/admin-auth.js';
 
 const root=path.resolve(path.dirname(fileURLToPath(import.meta.url)),'../../..');
 export const ADMIN_EMAIL='khadoliyavikash@gmail.com';

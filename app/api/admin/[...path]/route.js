@@ -2,11 +2,12 @@ import { NextResponse } from 'next/server';
 import { ADMIN_SESSION_COOKIE, verifyAdminSession } from '../../../../lib/admin-auth.js';
 
 const MUTATIONS=new Set(['POST','PATCH','DELETE']);
+const CONTENT_TYPES = ['destinations','attractions','articles','states','districts','tehsils'];
+const allowed=new Set(['session','overview','audit-logs','media',...CONTENT_TYPES]);
 async function forward(request,context){
   const {path=[]}=await context.params;
-  const allowed=new Set(['session','overview','audit-logs','media','destinations','attractions','articles']);
   const resource=path[0];
-  const validPath=resource==='media'?path.length===1||(path.length===2&&(path[1]==='upload'||/^[0-9a-f-]{36}$/i.test(path[1]))):(['destinations','attractions','articles'].includes(resource)?path.length>=1&&path.length<=3:path.length===1);
+  const validPath=resource==='media'?path.length===1||(path.length===2&&(path[1]==='upload'||/^[0-9a-f-]{36}$/i.test(path[1]))):(CONTENT_TYPES.includes(resource)?path.length>=1&&path.length<=3:path.length===1);
   if(!allowed.has(resource)||!validPath||path.some((part)=>part==='..')) return NextResponse.json({error:'Not found'},{status:404});
   if(MUTATIONS.has(request.method)){
     const origin=request.headers.get('origin');

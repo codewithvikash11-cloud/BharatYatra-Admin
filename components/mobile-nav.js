@@ -23,8 +23,6 @@ export default function MobileNav() {
     { label: 'States', href: '/content/states' },
     { label: 'Districts', href: '/content/districts' },
     { label: 'Local Areas', href: '/content/tehsils' },
-    { label: 'Events', href: '/content/events' },
-    { label: 'Itineraries', href: '/content/itineraries' },
   ];
 
   const moreMenu = [

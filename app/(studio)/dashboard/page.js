@@ -2,7 +2,7 @@ import Link from 'next/link';
 import { adminApiFetch } from '../../../lib/api.js';
 
 export const metadata={title:'Overview · BharatYatra Studio'};
-const types=['destinations','attractions','articles'];
+const types=['destinations','attractions','articles','states','districts','tehsils'];
 async function loadOverview(){
   try{const response=await adminApiFetch('overview');if(response.ok)return (await response.json()).data;}catch{}
   return null;

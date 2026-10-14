@@ -1,4 +1,5 @@
 import Link from 'next/link';
+import { redirect } from 'next/navigation';
 import { getAdminSession } from '../../lib/admin-session.js';
 import MobileNav from '../../components/mobile-nav.js';
 
@@ -7,6 +8,7 @@ export const revalidate = 0;
 
 export default async function StudioLayout({ children }) {
   const session = await getAdminSession();
+  if (!session) redirect('/');
 
   return (
     <div className="studio">
@@ -30,13 +32,16 @@ export default async function StudioLayout({ children }) {
           <Link href="/audit">Audit history</Link>
         </nav>
         <div className="sidebar-bottom">
-          <span className="role-pill">{session?.role || 'admin'}</span>
+          <span className="role-pill">{session.role}</span>
+          <form action="/api/auth/logout" method="post">
+            <button className="signout">Sign out</button>
+          </form>
         </div>
       </aside>
       <main className="studio-main">
         <header className="topbar">
           <span>Content operations</span>
-          <span className="user-chip">{session?.email || 'admin@bharatyatra.in'}</span>
+          <span className="user-chip">{session.email}</span>
         </header>
         {children}
       </main>

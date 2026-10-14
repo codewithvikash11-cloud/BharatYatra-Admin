@@ -1,31 +1,9 @@
 import { NextResponse } from 'next/server';
-import { ADMIN_SESSION_COOKIE, verifyAdminSession, issueAdminSession, createAdminActorId, normalizeAdminEmail } from '../../../../lib/admin-auth.js';
+import { ADMIN_SESSION_COOKIE, verifyAdminSession } from '../../../../lib/admin-auth.js';
 
 const MUTATIONS = new Set(['POST', 'PATCH', 'DELETE']);
 const CONTENT_TYPES = ['destinations', 'attractions', 'articles', 'itineraries', 'states', 'districts', 'tehsils'];
 const allowed = new Set(['session', 'overview', 'audit-logs', 'media', ...CONTENT_TYPES]);
-
-const DEFAULT_ADMIN_EMAIL = 'khadoliyavikash@gmail.com';
-const DEFAULT_ADMIN_SECRET = 'v1EaAVD2B_jSrAve9iPUVKgteexZ5QFEIawhB4IlVj7BhnjftpjCG9X3deTjwacN';
-const DEFAULT_API_BASE = 'https://bharat-yatra-in-bc-api.vercel.app/api/v1';
-
-function getValidToken(token) {
-  const env = {
-    ADMIN_SESSION_SECRET: process.env.ADMIN_SESSION_SECRET || DEFAULT_ADMIN_SECRET,
-    ADMIN_EMAIL: process.env.ADMIN_EMAIL || DEFAULT_ADMIN_EMAIL,
-  };
-  if (token && verifyAdminSession(token, env)) return token;
-  const email = normalizeAdminEmail(env.ADMIN_EMAIL);
-  try {
-    return issueAdminSession({
-      id: createAdminActorId(email),
-      email,
-      role: 'admin',
-    }, env);
-  } catch {
-    return null;
-  }
-}
 
 async function forward(request, context) {
   const { path = [] } = await context.params;
@@ -33,17 +11,39 @@ async function forward(request, context) {
   const validPath = resource === 'media'
     ? path.length === 1 || (path.length === 2 && (path[1] === 'upload' || /^[0-9a-f-]{36}$/i.test(path[1])))
     : (CONTENT_TYPES.includes(resource) ? path.length >= 1 && path.length <= 3 : path.length === 1);
-  if (!allowed.has(resource) || !validPath || path.some((part) => part === '..')) return NextResponse.json({ error: 'Not found' }, { status: 404 });
+  if (!allowed.has(resource) || !validPath || path.some((part) => part === '..')) {
+    return NextResponse.json({ error: 'Not found' }, { status: 404 });
+  }
+
+  if (MUTATIONS.has(request.method)) {
+    const origin = request.headers.get('origin');
+    const host = request.headers.get('host');
+    const configured = process.env.ADMIN_ORIGIN;
+    let allowedOrigin = false;
+    if (origin) {
+      try {
+        const originUrl = new URL(origin);
+        if (configured && originUrl.origin === new URL(configured).origin) allowedOrigin = true;
+        if (host && (originUrl.host === host || originUrl.hostname === host)) allowedOrigin = true;
+      } catch {}
+    }
+    if (!allowedOrigin && configured) {
+      return NextResponse.json({ error: 'Origin not allowed' }, { status: 403 });
+    }
+  }
 
   try {
-    const incomingToken = request.cookies.get(ADMIN_SESSION_COOKIE)?.value;
-    const token = getValidToken(incomingToken);
+    const token = request.cookies.get(ADMIN_SESSION_COOKIE)?.value;
+    if (!verifyAdminSession(token, process.env)) {
+      return NextResponse.json({ error: 'Authentication required' }, { status: 401 });
+    }
 
-    const apiBase = process.env.ADMIN_API_URL || process.env.NEXT_PUBLIC_API_BASE_URL || (process.env.NODE_ENV === 'development' ? 'http://localhost:4000/api/v1' : DEFAULT_API_BASE);
+    const apiBase = process.env.ADMIN_API_URL || process.env.NEXT_PUBLIC_API_BASE_URL || (process.env.NODE_ENV === 'development' ? 'http://localhost:4000/api/v1' : 'https://bharat-yatra-in-bc-api.vercel.app/api/v1');
+    if (!apiBase) return NextResponse.json({ error: 'Admin API is not configured' }, { status: 503 });
 
     const target = new URL(`${apiBase.replace(/\/+$/, '')}/admin/${path.map(encodeURIComponent).join('/')}`);
     target.search = request.nextUrl.search;
-    const headers = { ...(token ? { authorization: `Bearer ${token}` } : {}), accept: 'application/json' };
+    const headers = { authorization: `Bearer ${token}`, accept: 'application/json' };
     let body;
     if (MUTATIONS.has(request.method)) {
       const contentType = request.headers.get('content-type') || 'application/json';

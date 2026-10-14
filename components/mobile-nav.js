@@ -17,17 +17,17 @@ export default function MobileNav() {
   ];
 
   const contentMenu = [
-    { label: 'Articles', href: '/content/articles' },
+    { label: 'Articles', href: '/articles' },
     { label: 'Destinations', href: '/content/destinations' },
     { label: 'Attractions', href: '/content/attractions' },
+    { label: 'Itineraries', href: '/content/itineraries' },
     { label: 'States', href: '/content/states' },
     { label: 'Districts', href: '/content/districts' },
     { label: 'Local Areas', href: '/content/tehsils' },
   ];
 
   const moreMenu = [
-    { label: 'Audit History', href: '/audit' },
-    { label: 'Sign Out', href: '/api/auth/logout', isForm: true }
+    { label: 'Audit History', href: '/audit' }
   ];
 
   return (

@@ -11,8 +11,8 @@ datasource db {
 /// This table contains check constraints and requires additional setup for migrations. Visit https://pris.ly/d/check-constraints for more info.
 /// This model contains row level security and requires additional setup for migrations. Visit https://pris.ly/d/row-level-security for more info.
 model articles {
-  id                 String    @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
-  slug               String    @unique
+  id                 String        @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  slug               String        @unique
   title_en           String
   title_hi           String?
   excerpt_en         String?
@@ -20,16 +20,27 @@ model articles {
   body_en            String?
   body_hi            String?
   author_name        String?
+  category           String?
+  tags               String?
+  destination_id     String?       @db.Uuid
+  state_id           String?       @db.Uuid
+  cover_image_url    String?
+  cover_image_alt    String?
+  canonical_url      String?
   seo_title_en       String?
   seo_title_hi       String?
   seo_description_en String?
   seo_description_hi String?
-  status             String    @default("DRAFT")
-  published_at       DateTime? @db.Timestamptz(6)
-  created_at         DateTime  @default(now()) @db.Timestamptz(6)
-  updated_at         DateTime  @default(now()) @db.Timestamptz(6)
+  status             String        @default("DRAFT")
+  published_at       DateTime?     @db.Timestamptz(6)
+  created_at         DateTime      @default(now()) @db.Timestamptz(6)
+  updated_at         DateTime      @default(now()) @db.Timestamptz(6)
+  destinations       destinations? @relation(fields: [destination_id], references: [id], onUpdate: NoAction)
+  states             states?       @relation(fields: [state_id], references: [id], onUpdate: NoAction)
 
   @@index([status, published_at(sort: Desc)], map: "articles_status_published_idx")
+  @@index([destination_id])
+  @@index([state_id])
 }
 
 /// This table contains check constraints and requires additional setup for migrations. Visit https://pris.ly/d/check-constraints for more info.
@@ -86,6 +97,7 @@ model destinations {
   updated_at     DateTime      @default(now()) @db.Timestamptz(6)
   attractions    attractions[]
   itineraries    itineraries[]
+  articles       articles[]
   states         states?       @relation(fields: [state_id], references: [id], onUpdate: NoAction)
   districts      districts?    @relation(fields: [district_id], references: [id], onUpdate: NoAction)
   tehsils        tehsils?      @relation(fields: [tehsil_id], references: [id], onUpdate: NoAction)
@@ -191,6 +203,7 @@ model states {
   updated_at     DateTime       @default(now()) @db.Timestamptz(6)
   districts      districts[]
   destinations   destinations[]
+  articles       articles[]
 }
 
 model districts {

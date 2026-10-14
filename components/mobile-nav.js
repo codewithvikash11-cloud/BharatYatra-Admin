@@ -27,8 +27,7 @@ export default function MobileNav() {
   ];
 
   const moreMenu = [
-    { label: 'Audit History', href: '/audit' },
-    { label: 'Sign Out', href: '/api/auth/logout', isForm: true }
+    { label: 'Audit History', href: '/audit' }
   ];
 
   return (

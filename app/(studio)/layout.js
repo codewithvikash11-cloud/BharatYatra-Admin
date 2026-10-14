@@ -1,5 +1,4 @@
 import Link from 'next/link';
-import { redirect } from 'next/navigation';
 import { getAdminSession } from '../../lib/admin-session.js';
 import MobileNav from '../../components/mobile-nav.js';
 
@@ -8,7 +7,6 @@ export const revalidate = 0;
 
 export default async function StudioLayout({ children }) {
   const session = await getAdminSession();
-  if (!session) redirect('/');
 
   return (
     <div className="studio">
@@ -33,9 +31,7 @@ export default async function StudioLayout({ children }) {
         </nav>
         <div className="sidebar-bottom">
           <span className="role-pill">{session.role}</span>
-          <form action="/api/auth/logout" method="post">
-            <button className="signout">Sign out</button>
-          </form>
+          <span style={{ fontSize: '0.78rem', color: '#10b981' }}>● Direct Access</span>
         </div>
       </aside>
       <main className="studio-main">

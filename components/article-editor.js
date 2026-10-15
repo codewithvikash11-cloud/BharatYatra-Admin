@@ -1,6 +1,37 @@
 'use client';
 
 import { useState, useEffect, useRef, useCallback } from 'react';
+import Link from 'next/link';
+import {
+  ArrowLeft,
+  Save,
+  Eye,
+  Send,
+  SlidersHorizontal,
+  FileText,
+  Search,
+  ListTree,
+  AlertCircle,
+  CheckCircle2,
+  Clock,
+  Sparkles,
+  Copy,
+  ExternalLink,
+  Trash2,
+  RotateCcw,
+  Image as ImageIcon,
+  Upload,
+  X,
+  Plus,
+  ChevronDown,
+  ChevronRight,
+  Globe,
+  Share2,
+} from 'lucide-react';
+
+import TiptapEditor from './rich-editor/tiptap-editor.js';
+import { extractTableOfContents } from './rich-editor/toc-extractor.js';
+import './rich-editor/editor.css';
 
 const CONTENT_TYPES = [
   'Destination Guide',
@@ -35,13 +66,6 @@ function slugify(text) {
     .slice(0, 100);
 }
 
-// Clean text paste handler (strips MS Word/HTML junk, normalizes paragraphs)
-function sanitizePastedText(clipboardData) {
-  let text = clipboardData.getData('text/plain');
-  if (!text) return '';
-  return text.replace(/\r\n/g, '\n').replace(/\r/g, '\n');
-}
-
 export default function ArticleEditor({ article, onBack, onSaved, role = 'admin' }) {
   const [form, setForm] = useState(() => ({
     id: article?.id || null,
@@ -57,53 +81,63 @@ export default function ArticleEditor({ article, onBack, onSaved, role = 'admin'
     locality_name: article?.locality_name || '',
     cover_image_url: article?.cover_image_url || '',
     cover_image_alt: article?.cover_image_alt || '',
+    cover_image_credit: article?.cover_image_credit || '',
+    cover_image_license: article?.cover_image_license || 'CC BY-SA 4.0 / Editorial',
     excerpt_en: article?.excerpt_en || '',
     body_en: article?.body_en || '',
     seo_title_en: article?.seo_title_en || '',
     seo_description_en: article?.seo_description_en || '',
     canonical_url: article?.canonical_url || '',
-    focus_keyword: '',
-    structured_data_type: 'Article',
-    robots_index: 'index, follow',
+    focus_keyword: article?.focus_keyword || '',
+    secondary_keywords: article?.secondary_keywords || '',
+    structured_data_type: article?.structured_data_type || 'Article',
+    robots_index: article?.robots_index || 'index, follow',
     status: article?.status || 'DRAFT',
-    attraction_id: article?.attraction_id || '',
-    image_credits: article?.image_credits || '',
-    og_image_url: article?.og_image_url || '',
-    sources: '',
-    editorial_notes: '',
-    is_location_independent: false,
+    published_at: article?.published_at || null,
   }));
 
-  const [activeTab, setActiveTab] = useState('publish');
-  const [previewMode, setPreviewMode] = useState('edit'); // 'edit', 'desktop', 'mobile'
-  const [slugLocked, setSlugLocked] = useState(Boolean(article?.id));
+  const [activeTab, setActiveTab] = useState('settings'); // 'settings' | 'seo' | 'outline'
+  const [isSidebarOpen, setIsSidebarOpen] = useState(true);
   const [isDirty, setIsDirty] = useState(false);
-  const [saveStatus, setSaveStatus] = useState('idle'); // 'idle', 'saving', 'saved', 'error'
+  const [saveStatus, setSaveStatus] = useState('idle'); // 'idle' | 'saving' | 'saved' | 'error'
   const [errorMessage, setErrorMessage] = useState('');
   const [noticeMessage, setNoticeMessage] = useState('');
-  const [mediaPickerOpen, setMediaPickerOpen] = useState(false);
-  const [mediaPickerTarget, setMediaPickerTarget] = useState('cover'); // 'cover' or 'body'
+  const [slugEditing, setSlugEditing] = useState(false);
+  const [customSlug, setCustomSlug] = useState(form.slug);
+  const [serpDevice, setSerpDevice] = useState('desktop'); // 'desktop' | 'mobile'
+
+  // Tag chip input state
   const [tagInput, setTagInput] = useState('');
 
-  // Dropdown relations
+  // Dropdown relations state
   const [statesList, setStatesList] = useState([]);
   const [districtsList, setDistrictsList] = useState([]);
   const [tehsilsList, setTehsilsList] = useState([]);
   const [destinationsList, setDestinationsList] = useState([]);
   const [attractionsList, setAttractionsList] = useState([]);
 
-  // Media Library in-modal state
+  // Media Picker state
+  const [mediaPickerOpen, setMediaPickerOpen] = useState(false);
+  const [mediaPickerTarget, setMediaPickerTarget] = useState('cover'); // 'cover' or 'body'
   const [mediaAssets, setMediaAssets] = useState([]);
   const [mediaLoading, setMediaLoading] = useState(false);
-  const [mediaSearch, setMediaSearch] = useState('');
   const [uploadingImage, setUploadingImage] = useState(false);
 
-  const textareaRef = useRef(null);
+  // Accordion open/close states
+  const [accordionState, setAccordionState] = useState({
+    status: true,
+    category: true,
+    media: true,
+    location: true,
+    seo: true,
+    danger: false,
+  });
+
   const autoSaveTimerRef = useRef(null);
 
-  // Load cascading location data
+  // Load cascading relations
   useEffect(() => {
-    async function loadLocations() {
+    async function loadRelations() {
       try {
         const [sRes, dRes, distRes, tehRes, aRes] = await Promise.all([
           fetch('/api/admin/states?limit=100', { cache: 'no-store' }),
@@ -117,10 +151,27 @@ export default function ArticleEditor({ article, onBack, onSaved, role = 'admin'
         if (distRes.ok) setDistrictsList((await distRes.json()).data || []);
         if (tehRes.ok) setTehsilsList((await tehRes.json()).data || []);
         if (aRes.ok) setAttractionsList((await aRes.json()).data || []);
-      } catch {}
+      } catch (err) {
+        console.error('Failed to load relations:', err);
+      }
     }
-    void loadLocations();
+    void loadRelations();
   }, []);
+
+  // Filtered districts by state
+  const filteredDistricts = form.state_id
+    ? districtsList.filter((d) => d.state_id === form.state_id)
+    : districtsList;
+
+  // Filtered tehsils by district
+  const filteredTehsils = form.district_id
+    ? tehsilsList.filter((t) => t.district_id === form.district_id)
+    : tehsilsList;
+
+  // Filtered destinations by state
+  const filteredDestinations = form.state_id
+    ? destinationsList.filter((dest) => !dest.state_id || dest.state_id === form.state_id)
+    : destinationsList;
 
   // Unsaved changes warning
   useEffect(() => {
@@ -134,11 +185,11 @@ export default function ArticleEditor({ article, onBack, onSaved, role = 'admin'
     return () => window.removeEventListener('beforeunload', handleBeforeUnload);
   }, [isDirty]);
 
-  // Autosave periodically (every 25 seconds) if dirty
+  // Periodic autosave (every 25 seconds) if dirty
   useEffect(() => {
     if (!isDirty || !form.title_en || !form.slug) return;
     autoSaveTimerRef.current = setTimeout(() => {
-      void handleSaveDraft(true);
+      void handleSave(true);
     }, 25000);
     return () => clearTimeout(autoSaveTimerRef.current);
   }, [isDirty, form]);
@@ -147,8 +198,9 @@ export default function ArticleEditor({ article, onBack, onSaved, role = 'admin'
     setIsDirty(true);
     setForm((prev) => {
       const next = { ...prev, [name]: value };
-      if (name === 'title_en' && !slugLocked && !article?.id) {
+      if (name === 'title_en' && !article?.id && !slugEditing) {
         next.slug = slugify(value);
+        setCustomSlug(next.slug);
       }
       if (name === 'state_id') {
         next.district_id = '';
@@ -161,9 +213,17 @@ export default function ArticleEditor({ article, onBack, onSaved, role = 'admin'
     });
   };
 
-  // Word count & reading time calculation
-  const words = (form.body_en || '').trim().split(/\s+/).filter(Boolean).length;
+  const toggleAccordion = (section) => {
+    setAccordionState((prev) => ({ ...prev, [section]: !prev[section] }));
+  };
+
+  // Word count & reading time
+  const strippedText = (form.body_en || '').replace(/<[^>]+>/g, ' ');
+  const words = strippedText.trim().split(/\s+/).filter(Boolean).length;
   const readingTime = Math.max(1, Math.ceil(words / 200));
+
+  // Extracted Table of Contents
+  const tableOfContents = extractTableOfContents(form.body_en);
 
   // Tag chip handlers
   const tagsArray = (form.tags || '')
@@ -185,112 +245,8 @@ export default function ArticleEditor({ article, onBack, onSaved, role = 'admin'
     handleFieldChange('tags', updated);
   };
 
-  // Content block insertion helpers
-  const insertFormatting = (prefix, suffix = '') => {
-    const textarea = textareaRef.current;
-    if (!textarea) return;
-    const start = textarea.selectionStart;
-    const end = textarea.selectionEnd;
-    const text = form.body_en || '';
-    const selectedText = text.substring(start, end) || 'Sample text';
-    const replacement = `${prefix}${selectedText}${suffix}`;
-    const nextBody = text.substring(0, start) + replacement + text.substring(end);
-    handleFieldChange('body_en', nextBody);
-    setTimeout(() => {
-      textarea.focus();
-      textarea.setSelectionRange(start + prefix.length, start + prefix.length + selectedText.length);
-    }, 50);
-  };
-
-  const insertBlock = (blockType) => {
-    const current = form.body_en || '';
-    let blockMarkdown = '';
-    switch (blockType) {
-      case 'h2':
-        blockMarkdown = '\n\n## Section Heading\n\n';
-        break;
-      case 'h3':
-        blockMarkdown = '\n\n### Sub-heading\n\n';
-        break;
-      case 'h4':
-        blockMarkdown = '\n\n#### Key Detail\n\n';
-        break;
-      case 'quote':
-        blockMarkdown = '\n\n> "A magnificent journey through India\'s heritage and royal architecture."\n\n';
-        break;
-      case 'bullet':
-        blockMarkdown = '\n\n- Key attraction or highlight\n- Seasonal weather note\n- Travel tip\n\n';
-        break;
-      case 'numbered':
-        blockMarkdown = '\n\n1. First stop or morning activity\n2. Afternoon monument visit\n3. Evening cultural bazaar\n\n';
-        break;
-      case 'table':
-        blockMarkdown = '\n\n| Attraction / Spot | Timings | Entry Fee |\n| :--- | :--- | :--- |\n| Amer Fort | 9:00 AM – 5:30 PM | ₹100 / ₹550 Foreigner |\n| Hawa Mahal | 9:00 AM – 5:00 PM | ₹50 / ₹200 Foreigner |\n\n';
-        break;
-      case 'divider':
-        blockMarkdown = '\n\n---\n\n';
-        break;
-      case 'callout':
-        blockMarkdown = '\n\n> **Traveler Tip:** Always carry cash in rural tehsils as mobile connectivity can fluctuate in heritage havelis.\n\n';
-        break;
-      default:
-        break;
-    }
-    handleFieldChange('body_en', current + blockMarkdown);
-  };
-
-  // Media Library loader
-  const openMediaPicker = async (target) => {
-    setMediaPickerTarget(target);
-    setMediaPickerOpen(true);
-    setMediaLoading(true);
-    try {
-      const res = await fetch('/api/admin/media?limit=50', { cache: 'no-store' });
-      const payload = await res.json();
-      if (res.ok) setMediaAssets(payload.data || []);
-    } catch {}
-    setMediaLoading(false);
-  };
-
-  // Direct image upload to Supabase Storage
-  const handleMediaUpload = async (event) => {
-    const file = event.target.files?.[0];
-    if (!file) return;
-    if (file.size > 5 * 1024 * 1024) {
-      setErrorMessage('Image must be under 5 MB');
-      return;
-    }
-    setUploadingImage(true);
-    setErrorMessage('');
-    try {
-      const res = await fetch('/api/admin/media/upload', {
-        method: 'POST',
-        headers: { 'content-type': 'application/octet-stream' },
-        body: file,
-      });
-      const payload = await res.json();
-      if (!res.ok) throw new Error(payload.error || 'Upload failed');
-      const uploadedUrl = payload.data?.public_url;
-      if (uploadedUrl) {
-        if (mediaPickerTarget === 'cover') {
-          handleFieldChange('cover_image_url', uploadedUrl);
-          handleFieldChange('cover_image_alt', form.cover_image_alt || form.title_en);
-        } else {
-          insertFormatting(`\n![${form.title_en}](${uploadedUrl})\n`);
-        }
-        setNoticeMessage('Image uploaded and applied successfully.');
-        setMediaPickerOpen(false);
-      }
-    } catch (err) {
-      setErrorMessage(err.message || 'Image upload failed');
-    } finally {
-      setUploadingImage(false);
-      event.target.value = '';
-    }
-  };
-
-  // Save Draft (or update)
-  const handleSaveDraft = async (isAutosave = false) => {
+  // Save (Draft or Update)
+  const handleSave = async (isAutosave = false) => {
     if (!form.title_en.trim()) {
       if (!isAutosave) setErrorMessage('Please enter an article title.');
       return null;
@@ -298,6 +254,15 @@ export default function ArticleEditor({ article, onBack, onSaved, role = 'admin'
     if (!form.slug.trim()) {
       if (!isAutosave) setErrorMessage('Please enter a URL slug.');
       return null;
+    }
+
+    // Validate location hierarchy
+    if (form.destination_id && form.state_id) {
+      const dest = destinationsList.find((d) => d.id === form.destination_id);
+      if (dest && dest.state_id && dest.state_id !== form.state_id) {
+        setErrorMessage('The selected Destination does not belong to the selected State.');
+        return null;
+      }
     }
 
     setSaveStatus('saving');
@@ -344,8 +309,9 @@ export default function ArticleEditor({ article, onBack, onSaved, role = 'admin'
       }));
       setIsDirty(false);
       setSaveStatus('saved');
+
       if (!isAutosave) {
-        setNoticeMessage(isUpdate ? 'Changes saved to database.' : 'Draft article created successfully.');
+        setNoticeMessage(isUpdate ? 'Article changes saved successfully.' : 'New draft article created.');
         if (onSaved) onSaved(result.data);
       }
       return result.data;
@@ -356,28 +322,31 @@ export default function ArticleEditor({ article, onBack, onSaved, role = 'admin'
     }
   };
 
-  // Publish / Status transition
-  const handlePublishToggle = async (targetStatus) => {
-    // If not saved yet, save first
+  // Publish / Unpublish / Workflow Transition
+  const handleStatusChange = async (targetStatus) => {
     let currentId = form.id;
     if (!currentId || isDirty) {
-      const saved = await handleSaveDraft();
+      const saved = await handleSave();
       if (!saved) return;
       currentId = saved.id;
     }
 
-    // Validation checks before publishing
     if (targetStatus === 'PUBLISHED') {
       if (!form.excerpt_en?.trim()) {
         setErrorMessage('Article Excerpt is required before publishing.');
-        setActiveTab('template');
+        setActiveTab('settings');
+        setAccordionState((prev) => ({ ...prev, category: true }));
         return;
       }
-      if (!form.body_en?.trim()) {
+      if (!form.body_en?.trim() || form.body_en === '<p></p>') {
         setErrorMessage('Article Body content is required before publishing.');
         return;
       }
-      if (!window.confirm('Are you ready to publish this article live to BharatYatra?')) {
+      if (!window.confirm('Are you ready to publish this article live to BharatYatra.in?')) {
+        return;
+      }
+    } else if (targetStatus === 'DRAFT' && form.status === 'PUBLISHED') {
+      if (!window.confirm('Unpublish this article? It will no longer be visible on the public website.')) {
         return;
       }
     }
@@ -395,904 +364,1005 @@ export default function ArticleEditor({ article, onBack, onSaved, role = 'admin'
       const result = await res.json();
       if (!res.ok) throw new Error(result.error || 'Workflow transition failed');
 
-      setForm((prev) => ({ ...prev, status: result.data.status }));
+      setForm((prev) => ({
+        ...prev,
+        status: result.data.status,
+        published_at: result.data.published_at,
+      }));
       setSaveStatus('saved');
       setNoticeMessage(
         targetStatus === 'PUBLISHED'
-          ? 'Article is now LIVE on BharatYatra!'
-          : `Article status changed to ${targetStatus.toLowerCase()}.`
+          ? '🎉 Article published live to BharatYatra!'
+          : `Article status changed to ${targetStatus}.`
       );
-      if (onSaved) onSaved(result.data);
     } catch (err) {
       setSaveStatus('error');
       setErrorMessage(err.message || 'Status transition failed');
     }
   };
 
-  // Private HMAC preview
-  const handleOpenPreview = async () => {
-    if (!form.slug) {
-      setErrorMessage('Please provide a URL slug first.');
-      return;
+  // Preview Action
+  const handlePreview = async () => {
+    let currentSlug = form.slug;
+    if (isDirty || !form.id) {
+      const saved = await handleSave();
+      if (!saved) return;
+      currentSlug = saved.slug;
     }
-    // Save draft first to ensure preview renders current content
-    if (isDirty) {
-      await handleSaveDraft();
-    }
+
     try {
-      const res = await fetch(`/api/admin/preview-token?type=articles&slug=${encodeURIComponent(form.slug)}`);
-      const payload = await res.json();
-      if (!res.ok) throw new Error(payload.error || 'Failed to generate preview token');
-      if (payload.previewUrl) {
-        window.open(payload.previewUrl, '_blank', 'noopener,noreferrer');
+      const res = await fetch(`/api/admin/preview-token?type=articles&slug=${encodeURIComponent(currentSlug)}`);
+      const data = await res.json();
+      if (res.ok && data.previewUrl) {
+        window.open(data.previewUrl, '_blank', 'noopener,noreferrer');
+      } else {
+        // Fallback preview route
+        window.open(`/preview/articles/${encodeURIComponent(currentSlug)}`, '_blank');
       }
-    } catch (err) {
-      setErrorMessage(err.message || 'Could not open private draft preview');
+    } catch {
+      window.open(`/preview/articles/${encodeURIComponent(currentSlug)}`, '_blank');
     }
   };
 
-  // Move to Trash (archive) or Restore
-  const handleTrashToggle = async () => {
-    if (!form.id) return;
-    const isTrashed = form.status === 'ARCHIVED';
-    if (!isTrashed) {
-      if (!window.confirm(`Move "${form.title_en}" to Trash? It will be removed from all public listings.`)) return;
-      try {
-        const res = await fetch(`/api/admin/articles/${form.id}`, { method: 'DELETE' });
-        if (!res.ok) throw new Error('Trash action failed');
-        setForm((prev) => ({ ...prev, status: 'ARCHIVED' }));
-        setNoticeMessage('Article moved to Trash.');
-        if (onSaved) onSaved({ ...form, status: 'ARCHIVED' });
-      } catch (err) {
-        setErrorMessage(err.message || 'Could not move article to trash');
-      }
-    } else {
-      // Restore to DRAFT
-      await handlePublishToggle('DRAFT');
-    }
-  };
-
-  // Permanent Delete
-  const handlePermanentDelete = async () => {
-    if (!form.id) return;
-    if (!window.confirm(`Permanently delete "${form.title_en}"? This action cannot be undone.`)) return;
-    try {
-      const res = await fetch(`/api/admin/articles/${form.id}?permanent=true`, { method: 'DELETE' });
-      if (!res.ok) throw new Error('Permanent deletion failed');
-      alert('Article permanently deleted.');
-      if (onBack) onBack();
-    } catch (err) {
-      setErrorMessage(err.message || 'Could not permanently delete article');
-    }
-  };
-
-  // Duplicate Article
+  // Duplicate Action
   const handleDuplicate = async () => {
-    if (!form.id) {
-      setErrorMessage('Save article first before duplicating.');
-      return;
-    }
+    if (!form.id) return;
+    if (!window.confirm('Duplicate this article as a new draft?')) return;
+    setSaveStatus('saving');
     try {
       const res = await fetch(`/api/admin/articles/${form.id}/duplicate`, { method: 'POST' });
-      const payload = await res.json();
-      if (!res.ok) throw new Error(payload.error || 'Duplicate failed');
-      alert('Article duplicated successfully as a new draft!');
-      if (onSaved) onSaved(payload.data);
-      setForm((prev) => ({
-        ...prev,
-        id: payload.data.id,
-        title_en: payload.data.title_en,
-        slug: payload.data.slug,
-        status: 'DRAFT',
-      }));
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error || 'Duplicate failed');
+      setNoticeMessage(`Duplicated as new draft: "${data.data.title_en}"`);
+      if (onSaved) onSaved(data.data);
     } catch (err) {
-      setErrorMessage(err.message || 'Failed to duplicate article');
+      setErrorMessage(err.message || 'Duplicate failed');
+    } finally {
+      setSaveStatus('idle');
     }
   };
 
-  // SEO Analysis calculations
-  const focusKw = (form.focus_keyword || '').toLowerCase().trim();
-  const titleHasKw = focusKw && (form.title_en || '').toLowerCase().includes(focusKw);
-  const descHasKw = focusKw && (form.seo_description_en || form.excerpt_en || '').toLowerCase().includes(focusKw);
-  const bodyHasKw = focusKw && (form.body_en || '').toLowerCase().includes(focusKw);
-  const titleLength = (form.seo_title_en || form.title_en || '').length;
-  const descLength = (form.seo_description_en || form.excerpt_en || '').length;
-  const hasAltText = Boolean(form.cover_image_alt?.trim());
-  const hasHeadings = /##\s+/m.test(form.body_en || '');
+  // Trash / Permanent Delete
+  const handleDelete = async (permanent = false) => {
+    if (!form.id) return;
+    const msg = permanent
+      ? 'Permanently delete this article from the database? This action CANNOT be undone.'
+      : 'Move this article to Trash (Archive)? It will be unpublished immediately.';
+    if (!window.confirm(msg)) return;
 
-  // Filtered districts for cascading selector
-  const availableDistricts = districtsList.filter(
-    (d) => !form.state_id || d.state_id === form.state_id
-  );
-  // Filtered tehsils for cascading selector
-  const availableTehsils = tehsilsList.filter(
-    (t) => !form.district_id || t.district_id === form.district_id
-  );
-  // Filtered destinations
-  const availableAttractions = attractionsList.filter((a) => !form.destination_id || a.destination_id === form.destination_id);
-  const availableDestinations = destinationsList.filter(
-    (dest) => !form.state_id || dest.state_id === form.state_id
-  );
+    setSaveStatus('saving');
+    try {
+      const url = permanent
+        ? `/api/admin/articles/${form.id}?permanent=true`
+        : `/api/admin/articles/${form.id}`;
+      const res = await fetch(url, { method: 'DELETE' });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error || 'Delete failed');
+
+      if (permanent) {
+        if (onBack) onBack();
+      } else {
+        setForm((prev) => ({ ...prev, status: 'ARCHIVED' }));
+        setNoticeMessage('Article moved to Trash (Archived).');
+      }
+    } catch (err) {
+      setErrorMessage(err.message || 'Delete failed');
+    } finally {
+      setSaveStatus('idle');
+    }
+  };
+
+  // Open Media Picker
+  const openMediaPicker = async (target) => {
+    setMediaPickerTarget(target);
+    setMediaPickerOpen(true);
+    setMediaLoading(true);
+    try {
+      const res = await fetch('/api/admin/media?limit=50', { cache: 'no-store' });
+      const payload = await res.json();
+      if (res.ok) setMediaAssets(payload.data || []);
+    } catch {}
+    setMediaLoading(false);
+  };
+
+  // Direct Image Upload
+  const handleMediaUpload = async (e) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    if (file.size > 5 * 1024 * 1024) {
+      setErrorMessage('Image must be under 5 MB');
+      return;
+    }
+    setUploadingImage(true);
+    setErrorMessage('');
+    try {
+      const res = await fetch('/api/admin/media/upload', {
+        method: 'POST',
+        headers: { 'content-type': 'application/octet-stream' },
+        body: file,
+      });
+      const payload = await res.json();
+      if (!res.ok) throw new Error(payload.error || 'Upload failed');
+      const uploadedUrl = payload.data?.public_url;
+      if (uploadedUrl) {
+        if (mediaPickerTarget === 'cover') {
+          handleFieldChange('cover_image_url', uploadedUrl);
+          if (!form.cover_image_alt) handleFieldChange('cover_image_alt', form.title_en);
+        }
+        setNoticeMessage('Image uploaded successfully.');
+        setMediaPickerOpen(false);
+      }
+    } catch (err) {
+      setErrorMessage(err.message || 'Image upload failed');
+    } finally {
+      setUploadingImage(false);
+      e.target.value = '';
+    }
+  };
+
+  // SEO Score & Quality Checklist calculations
+  const seoTitle = form.seo_title_en || form.title_en;
+  const seoDesc = form.seo_description_en || form.excerpt_en || '';
+  const focusKw = (form.focus_keyword || '').toLowerCase().trim();
+
+  const titleLengthOk = seoTitle.length >= 40 && seoTitle.length <= 65;
+  const descLengthOk = seoDesc.length >= 120 && seoDesc.length <= 165;
+  const kwInTitle = focusKw ? seoTitle.toLowerCase().includes(focusKw) : false;
+  const kwInDesc = focusKw ? seoDesc.toLowerCase().includes(focusKw) : false;
+  const kwInExcerpt = focusKw ? (form.excerpt_en || '').toLowerCase().includes(focusKw) : false;
+  const hasHeadings = tableOfContents.length >= 2;
+  const hasCover = Boolean(form.cover_image_url);
+  const hasCoverAlt = Boolean(form.cover_image_alt);
+  const wordCountOk = words >= 300;
+  const hasInternalLinks = (form.body_en || '').includes('href="/') || (form.body_en || '').includes('bharat-yatra');
+
+  const seoChecklistItems = [
+    { label: 'Title length (40–65 chars)', passed: titleLengthOk, val: `${seoTitle.length} chars` },
+    { label: 'Meta description length (120–165 chars)', passed: descLengthOk, val: `${seoDesc.length} chars` },
+    { label: 'Focus keyword specified', passed: Boolean(focusKw), val: focusKw || 'None' },
+    { label: 'Focus keyword in Title', passed: kwInTitle, hidden: !focusKw },
+    { label: 'Focus keyword in Meta Description', passed: kwInDesc, hidden: !focusKw },
+    { label: 'Section headings used (H2/H3)', passed: hasHeadings, val: `${tableOfContents.length} headings` },
+    { label: 'Cover image with Alt text', passed: hasCover && hasCoverAlt },
+    { label: 'Content depth (300+ words)', passed: wordCountOk, val: `${words} words` },
+    { label: 'Internal links included', passed: hasInternalLinks },
+  ].filter((item) => !item.hidden);
+
+  const passedChecksCount = seoChecklistItems.filter((i) => i.passed).length;
+  const seoScore = Math.round((passedChecksCount / seoChecklistItems.length) * 100);
 
   return (
-    <div className="article-studio-root">
+    <div className="wp-editor-root">
       {/* ====================================================
-          1. TOP STATUS & PUBLISHING BAR
+          TOP STICKY ACTION HEADER
           ==================================================== */}
-      <header className="studio-top-bar">
-        <div className="top-bar-left">
-          <button type="button" className="button subtle back-btn" onClick={onBack}>
-            ← Articles
+      <header className="wp-editor-header">
+        <div className="wp-header-left">
+          <button type="button" className="wp-back-btn" onClick={onBack || (() => window.history.back())}>
+            <ArrowLeft size={14} />
+            <span>Articles</span>
           </button>
-          <div className="doc-meta">
-            <span className={`status status-${form.status?.toLowerCase()}`}>
-              {form.status === 'ARCHIVED' ? 'TRASH' : form.status}
-            </span>
-            <span className="autosave-tag">
-              {saveStatus === 'saving' && '⏳ Saving...'}
-              {saveStatus === 'saved' && '✓ Saved'}
-              {saveStatus === 'error' && '⚠️ Save error'}
-              {saveStatus === 'idle' && (isDirty ? '● Unsaved changes' : 'All changes saved')}
-            </span>
-          </div>
+          <span className="wp-title-breadcrumb">
+            {form.title_en || 'Untitled Article'}
+          </span>
+          <span className={`wp-header-status-badge ${form.status.toLowerCase()}`}>
+            {form.status}
+          </span>
+          <span className="wp-save-indicator">
+            {saveStatus === 'saving' && <><Clock size={12} className="spin" /> Saving...</>}
+            {saveStatus === 'saved' && <><CheckCircle2 size={12} style={{ color: '#16a34a' }} /> Saved</>}
+            {isDirty && saveStatus !== 'saving' && <span style={{ color: '#d97706' }}>● Unsaved</span>}
+          </span>
         </div>
 
-        <div className="top-bar-center">
-          <div className="view-mode-toggle">
-            <button
-              type="button"
-              className={`mode-btn ${previewMode === 'edit' ? 'active' : ''}`}
-              onClick={() => setPreviewMode('edit')}
-              title="Editor Canvas"
-            >
-              ✍️ Studio
-            </button>
-            <button
-              type="button"
-              className={`mode-btn ${previewMode === 'desktop' ? 'active' : ''}`}
-              onClick={() => setPreviewMode('desktop')}
-              title="Desktop Preview"
-            >
-              🖥 Desktop
-            </button>
-            <button
-              type="button"
-              className={`mode-btn ${previewMode === 'mobile' ? 'active' : ''}`}
-              onClick={() => setPreviewMode('mobile')}
-              title="Mobile Preview"
-            >
-              📱 Mobile
-            </button>
-          </div>
-        </div>
-
-        <div className="top-bar-right">
+        <div className="wp-header-right">
           <button
             type="button"
             className="button subtle"
-            onClick={handleOpenPreview}
-            title="Open secure private draft preview"
+            onClick={() => handleSave(false)}
+            disabled={saveStatus === 'saving'}
+            title="Save as Draft"
           >
-            👁 Preview ↗
+            <Save size={14} style={{ marginRight: '5px' }} />
+            Save Draft
           </button>
 
           <button
             type="button"
-            className="button"
-            disabled={saveStatus === 'saving'}
-            onClick={() => handleSaveDraft(false)}
+            className="button subtle"
+            onClick={handlePreview}
+            title="Preview Live Page"
           >
-            {saveStatus === 'saving' ? 'Saving…' : 'Save Draft'}
+            <Eye size={14} style={{ marginRight: '5px' }} />
+            Preview
           </button>
 
-          {role === 'admin' && form.status !== 'PUBLISHED' && (
+          {form.status === 'PUBLISHED' ? (
             <button
               type="button"
-              className="button primary publish-btn"
+              className="button primary"
+              onClick={() => handleSave(false)}
               disabled={saveStatus === 'saving'}
-              onClick={() => handlePublishToggle('PUBLISHED')}
+              title="Update Published Article"
             >
-              🚀 Publish Live
+              <Send size={14} style={{ marginRight: '5px' }} />
+              Update
+            </button>
+          ) : (
+            <button
+              type="button"
+              className="button primary"
+              onClick={() => handleStatusChange('PUBLISHED')}
+              disabled={saveStatus === 'saving'}
+              style={{ backgroundColor: '#15803d', borderColor: '#15803d' }}
+              title="Publish Article Live"
+            >
+              <Send size={14} style={{ marginRight: '5px' }} />
+              Publish
             </button>
           )}
 
-          {role === 'admin' && form.status === 'PUBLISHED' && (
-            <button
-              type="button"
-              className="button"
-              style={{ background: '#fef3e9', color: '#926319', borderColor: '#f1d6b0' }}
-              disabled={saveStatus === 'saving'}
-              onClick={() => handlePublishToggle('DRAFT')}
-            >
-              ↩ Unpublish
-            </button>
-          )}
-
-          {form.id && (
-            <button
-              type="button"
-              className="button subtle"
-              onClick={handleDuplicate}
-              title="Duplicate as new draft"
-            >
-              📋 Duplicate
-            </button>
-          )}
+          <button
+            type="button"
+            className={`button subtle ${isSidebarOpen ? 'active' : ''}`}
+            onClick={() => setIsSidebarOpen(!isSidebarOpen)}
+            title="Toggle Settings Panel"
+            aria-label="Toggle Settings Panel"
+          >
+            <SlidersHorizontal size={14} />
+          </button>
         </div>
       </header>
 
-      {/* Notifications Bar */}
+      {/* Global Error & Notice Alerts */}
       {errorMessage && (
-        <div className="error" role="alert" style={{ margin: '12px 24px', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-          <span>{errorMessage}</span>
-          <button type="button" onClick={() => setErrorMessage('')} style={{ background: 'none', border: 'none', cursor: 'pointer', fontWeight: 700 }}>✕</button>
+        <div style={{ margin: '12px 24px 0', padding: '10px 16px', background: '#fef2f2', border: '1px solid #fecaca', borderRadius: '8px', color: '#b91c1c', fontSize: '0.85rem', display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+          <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+            <AlertCircle size={16} />
+            <span>{errorMessage}</span>
+          </div>
+          <button type="button" onClick={() => setErrorMessage('')} style={{ background: 'none', border: 'none', cursor: 'pointer', color: '#b91c1c' }}><X size={14} /></button>
         </div>
       )}
+
       {noticeMessage && (
-        <div className="success" role="status" style={{ margin: '12px 24px', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-          <span>{noticeMessage}</span>
-          <button type="button" onClick={() => setNoticeMessage('')} style={{ background: 'none', border: 'none', cursor: 'pointer', fontWeight: 700 }}>✕</button>
+        <div style={{ margin: '12px 24px 0', padding: '10px 16px', background: '#f0fdf4', border: '1px solid #bbf7d0', borderRadius: '8px', color: '#15803d', fontSize: '0.85rem', display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+          <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+            <CheckCircle2 size={16} />
+            <span>{noticeMessage}</span>
+          </div>
+          <button type="button" onClick={() => setNoticeMessage('')} style={{ background: 'none', border: 'none', cursor: 'pointer', color: '#15803d' }}><X size={14} /></button>
         </div>
       )}
 
       {/* ====================================================
-          2. WORKSPACE GRID (CANVAS + SIDEBAR)
+          MAIN TWO-COLUMN WORKSPACE
           ==================================================== */}
-      <div className={`studio-workspace preview-${previewMode}`}>
-        {/* MAIN WRITING CANVAS */}
-        <main className="studio-canvas">
-          <div className="canvas-inner">
-            {/* Title & Slug Bar */}
-            <div className="title-section">
-              <input
-                type="text"
-                className="article-title-input"
-                placeholder="Article Title..."
-                value={form.title_en}
-                onChange={(e) => handleFieldChange('title_en', e.target.value)}
-              />
+      <div className="wp-editor-workspace">
+        {/* LEFT WRITING CANVAS */}
+        <main className="wp-writing-canvas">
+          {/* Article Title */}
+          <input
+            type="text"
+            className="wp-title-input"
+            placeholder="Add title..."
+            value={form.title_en}
+            onChange={(e) => handleFieldChange('title_en', e.target.value)}
+            autoFocus
+          />
 
-              <div className="slug-bar">
-                <span className="slug-prefix">https://bharatyatra.in/articles/</span>
-                {slugLocked ? (
-                  <span className="slug-display">{form.slug || 'untitled-slug'}</span>
-                ) : (
-                  <input
-                    type="text"
-                    className="slug-input"
-                    value={form.slug}
-                    placeholder="custom-slug"
-                    onChange={(e) => handleFieldChange('slug', slugify(e.target.value))}
-                  />
-                )}
+          {/* Permalink / Slug Bar */}
+          <div className="wp-permalink-bar">
+            <span className="wp-permalink-prefix">https://bharat-yatra-in.vercel.app/articles/</span>
+            {slugEditing ? (
+              <div style={{ display: 'inline-flex', alignItems: 'center', gap: '4px' }}>
+                <input
+                  type="text"
+                  className="wp-permalink-input"
+                  value={customSlug}
+                  onChange={(e) => setCustomSlug(slugify(e.target.value))}
+                />
                 <button
                   type="button"
-                  className="slug-toggle-btn"
-                  onClick={() => setSlugLocked(!slugLocked)}
+                  className="wp-permalink-btn"
+                  onClick={() => {
+                    handleFieldChange('slug', customSlug);
+                    setSlugEditing(false);
+                  }}
                 >
-                  {slugLocked ? '✏ Edit Slug' : '✓ Done'}
+                  OK
                 </button>
-              </div>
-            </div>
-
-            {/* Visual Editor Toolbar */}
-            <div className="editor-toolbar">
-              <div className="toolbar-group">
-                <button type="button" onClick={() => insertBlock('h2')} title="Heading 2">H2</button>
-                <button type="button" onClick={() => insertBlock('h3')} title="Heading 3">H3</button>
-                <button type="button" onClick={() => insertBlock('h4')} title="Heading 4">H4</button>
-              </div>
-              <div className="toolbar-sep" />
-              <div className="toolbar-group">
-                <button type="button" onClick={() => insertFormatting('**', '**')} title="Bold"><b>B</b></button>
-                <button type="button" onClick={() => insertFormatting('*', '*')} title="Italic"><i>I</i></button>
-                <button type="button" onClick={() => insertFormatting('[', '](https://...)')} title="Link">🔗</button>
-              </div>
-              <div className="toolbar-sep" />
-              <div className="toolbar-group">
-                <button type="button" onClick={() => insertBlock('quote')} title="Blockquote">”</button>
-                <button type="button" onClick={() => insertBlock('bullet')} title="Bullet list">• List</button>
-                <button type="button" onClick={() => insertBlock('numbered')} title="Numbered list">1. List</button>
-                <button type="button" onClick={() => insertBlock('table')} title="Insert Table">📊 Table</button>
-                <button type="button" onClick={() => insertBlock('callout')} title="Traveler Tip Callout">💡 Tip</button>
-                <button type="button" onClick={() => insertBlock('divider')} title="Divider">—</button>
-              </div>
-              <div className="toolbar-sep" />
-              <div className="toolbar-group">
                 <button
                   type="button"
-                  className="toolbar-media-btn"
-                  onClick={() => openMediaPicker('body')}
+                  className="wp-permalink-btn"
+                  onClick={() => {
+                    setCustomSlug(form.slug);
+                    setSlugEditing(false);
+                  }}
                 >
-                  🖼 Insert Image
+                  Cancel
                 </button>
               </div>
-            </div>
+            ) : (
+              <>
+                <span className="wp-permalink-slug">{form.slug || 'untitled-article'}</span>
+                <button
+                  type="button"
+                  className="wp-permalink-btn"
+                  onClick={() => {
+                    setCustomSlug(form.slug);
+                    setSlugEditing(true);
+                  }}
+                >
+                  Edit
+                </button>
+              </>
+            )}
 
-            {/* Rich Text Writing Area */}
-            <div className="body-editor-wrap">
-              <textarea
-                ref={textareaRef}
-                className="article-body-textarea"
-                placeholder="Write your travel story, historical insights, practical route advice, and cultural wonders here... (Markdown supported)"
-                value={form.body_en}
-                onChange={(e) => handleFieldChange('body_en', e.target.value)}
-                onPaste={(e) => {
-                  const sanitized = sanitizePastedText(e.clipboardData);
-                  if (sanitized) {
-                    e.preventDefault();
-                    document.execCommand('insertText', false, sanitized);
-                  }
-                }}
-              />
-            </div>
+            <button
+              type="button"
+              className="wp-permalink-btn"
+              onClick={() => {
+                const url = `https://bharat-yatra-in.vercel.app/articles/${form.slug}`;
+                navigator.clipboard.writeText(url);
+                setNoticeMessage('Permalink copied to clipboard.');
+              }}
+              title="Copy URL"
+            >
+              <Copy size={11} style={{ verticalAlign: 'middle', marginRight: '2px' }} /> Copy
+            </button>
 
-            {/* Canvas Footer Metrics */}
-            <div className="canvas-footer">
-              <span>📊 {words} words</span>
-              <span>⏱ ~{readingTime} min read</span>
-              <span>🏷 {tagsArray.length} tags</span>
-              <span style={{ marginLeft: 'auto', color: 'var(--muted)' }}>
-                {form.category} · {form.status}
-              </span>
-            </div>
+            {form.status === 'PUBLISHED' && (
+              <a
+                href={`https://bharat-yatra-in.vercel.app/articles/${form.slug}`}
+                target="_blank"
+                rel="noopener noreferrer"
+                className="wp-permalink-btn"
+                style={{ color: '#059669' }}
+              >
+                <ExternalLink size={11} style={{ verticalAlign: 'middle', marginRight: '2px' }} /> View Live
+              </a>
+            )}
           </div>
+
+          {/* Rich Tiptap Editor Canvas */}
+          <TiptapEditor
+            content={form.body_en}
+            onChange={(html) => handleFieldChange('body_en', html)}
+            onOpenMediaPicker={() => openMediaPicker('body')}
+          />
         </main>
 
-        {/* ====================================================
-            3. WORDPRESS-STYLE SIDEBAR CONTROLS
-            ==================================================== */}
-        <aside className="studio-sidebar">
-          {/* Sidebar Navigation Tabs */}
-          <nav className="sidebar-tabs" aria-label="Editor panels">
-            <button
-              type="button"
-              className={activeTab === 'publish' ? 'active' : ''}
-              onClick={() => setActiveTab('publish')}
-            >
-              Publish
-            </button>
-            <button
-              type="button"
-              className={activeTab === 'media' ? 'active' : ''}
-              onClick={() => setActiveTab('media')}
-            >
-              Media
-            </button>
-            <button
-              type="button"
-              className={activeTab === 'location' ? 'active' : ''}
-              onClick={() => setActiveTab('location')}
-            >
-              Location
-            </button>
-            <button
-              type="button"
-              className={activeTab === 'seo' ? 'active' : ''}
-              onClick={() => setActiveTab('seo')}
-            >
-              SEO Studio
-            </button>
-            <button
-              type="button"
-              className={activeTab === 'template' ? 'active' : ''}
-              onClick={() => setActiveTab('template')}
-            >
-              Format
-            </button>
-          </nav>
+        {/* RIGHT COLLAPSIBLE SETTINGS SIDEBAR */}
+        {isSidebarOpen && (
+          <aside className="wp-editor-sidebar">
+            <div className="wp-sidebar-tabs">
+              <button
+                type="button"
+                className={`wp-sidebar-tab-btn ${activeTab === 'settings' ? 'active' : ''}`}
+                onClick={() => setActiveTab('settings')}
+              >
+                <FileText size={14} />
+                <span>Settings</span>
+              </button>
+              <button
+                type="button"
+                className={`wp-sidebar-tab-btn ${activeTab === 'seo' ? 'active' : ''}`}
+                onClick={() => setActiveTab('seo')}
+              >
+                <Search size={14} />
+                <span>SEO & Social</span>
+              </button>
+              <button
+                type="button"
+                className={`wp-sidebar-tab-btn ${activeTab === 'outline' ? 'active' : ''}`}
+                onClick={() => setActiveTab('outline')}
+              >
+                <ListTree size={14} />
+                <span>Outline ({tableOfContents.length})</span>
+              </button>
+            </div>
 
-          <div className="sidebar-panel-content">
-            {/* TAB 1: STATUS & PUBLISHING */}
-            {activeTab === 'publish' && (
-              <div className="panel-section">
-                <h3>Document Status & Lifecycle</h3>
-
-                <label className="sidebar-field">
-                  <span>Workflow Status</span>
-                  <select
-                    value={form.status}
-                    onChange={(e) => handleFieldChange('status', e.target.value)}
-                    disabled={role !== 'admin'}
-                  >
-                    <option value="DRAFT">DRAFT (Work in progress)</option>
-                    <option value="REVIEW">IN REVIEW (Editorial review)</option>
-                    <option value="PUBLISHED">PUBLISHED (Live on site)</option>
-                    <option value="ARCHIVED">TRASH (Archived / Unpublished)</option>
-                  </select>
-                </label>
-
-                <label className="sidebar-field">
-                  <span>Author / Byline</span>
-                  <input
-                    type="text"
-                    value={form.author_name}
-                    onChange={(e) => handleFieldChange('author_name', e.target.value)}
-                    placeholder="Author name"
-                  />
-                </label>
-
-                <div className="lifecycle-actions">
-                  <h4>Content Actions</h4>
-                  <div style={{ display: 'grid', gap: '8px', marginTop: '8px' }}>
-                    {form.status !== 'ARCHIVED' ? (
-                      <button
-                        type="button"
-                        className="button danger subtle"
-                        onClick={handleTrashToggle}
-                      >
-                        🗑 Move to Trash
-                      </button>
-                    ) : (
-                      <button
-                        type="button"
-                        className="button subtle"
-                        style={{ background: '#e1f1e4', color: '#276738' }}
-                        onClick={handleTrashToggle}
-                      >
-                        ♻ Restore from Trash
-                      </button>
-                    )}
-
-                    {role === 'admin' && form.id && (
-                      <button
-                        type="button"
-                        className="button danger subtle"
-                        style={{ borderStyle: 'dashed' }}
-                        onClick={handlePermanentDelete}
-                      >
-                        ❌ Delete Permanently
-                      </button>
-                    )}
-                  </div>
-                </div>
-              </div>
-            )}
-
-            {/* TAB 2: FEATURED IMAGE & MEDIA */}
-            {activeTab === 'media' && (
-              <div className="panel-section">
-                <h3>Featured Image & Media</h3>
-
-                {form.cover_image_url ? (
-                  <div className="featured-image-box">
-                    <img src={form.cover_image_url} alt={form.cover_image_alt || 'Cover'} />
-                    <button
-                      type="button"
-                      className="image-remove-btn"
-                      onClick={() => handleFieldChange('cover_image_url', '')}
-                    >
-                      ✕ Remove
+            <div className="wp-sidebar-content">
+              {/* TAB 1: ARTICLE SETTINGS */}
+              {activeTab === 'settings' && (
+                <>
+                  {/* Status & Schedule Accordion */}
+                  <div className="wp-accordion-section">
+                    <button type="button" className="wp-accordion-header" onClick={() => toggleAccordion('status')}>
+                      <span>Status & Visibility</span>
+                      {accordionState.status ? <ChevronDown size={14} /> : <ChevronRight size={14} />}
                     </button>
-                  </div>
-                ) : (
-                  <div className="featured-image-placeholder">
-                    <span>🖼</span>
-                    <p>No featured image set</p>
-                  </div>
-                )}
+                    {accordionState.status && (
+                      <div className="wp-accordion-body">
+                        <label className="form-label">
+                          <span>Workflow Status</span>
+                          <select
+                            value={form.status}
+                            onChange={(e) => handleStatusChange(e.target.value)}
+                            className="form-select"
+                          >
+                            <option value="DRAFT">Draft</option>
+                            <option value="REVIEW">In Review</option>
+                            <option value="PUBLISHED">Published</option>
+                            <option value="ARCHIVED">Archived / Trash</option>
+                          </select>
+                        </label>
 
-                <div style={{ display: 'flex', gap: '8px', margin: '12px 0' }}>
-                  <button
-                    type="button"
-                    className="button subtle"
-                    style={{ flex: 1 }}
-                    onClick={() => openMediaPicker('cover')}
-                  >
-                    Select from Library
-                  </button>
-                  <label className="button subtle" style={{ flex: 1, cursor: 'pointer', textAlign: 'center', margin: 0 }}>
-                    {uploadingImage ? 'Uploading…' : '📁 Upload New'}
-                    <input
-                      type="file"
-                      accept="image/jpeg,image/png,image/webp,image/avif"
-                      onChange={handleMediaUpload}
-                      style={{ display: 'none' }}
-                      disabled={uploadingImage}
-                    />
-                  </label>
-                </div>
+                        <label className="form-label">
+                          <span>Author</span>
+                          <input
+                            type="text"
+                            value={form.author_name}
+                            onChange={(e) => handleFieldChange('author_name', e.target.value)}
+                            placeholder="e.g. BharatYatra Editorial"
+                          />
+                        </label>
 
-                <label className="sidebar-field">
-                  <span>Image URL (or manual override)</span>
-                  <input
-                    type="url"
-                    value={form.cover_image_url}
-                    onChange={(e) => handleFieldChange('cover_image_url', e.target.value)}
-                    placeholder="https://images.unsplash.com/..."
-                  />
-                </label>
+                        <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '0.75rem', color: 'var(--muted)' }}>
+                          <span>⏱ Reading Time:</span>
+                          <strong>~{readingTime} min read ({words} words)</strong>
+                        </div>
 
-                <label className="sidebar-field">
-                  <span>Image Alt Text (Accessibility & SEO)</span>
-                  <input
-                    type="text"
-                    value={form.cover_image_alt}
-                    onChange={(e) => handleFieldChange('cover_image_alt', e.target.value)}
-                    placeholder="Descriptive alt text for search engines and screen readers"
-                  />
-                </label>
-
-                <label className="sidebar-field">
-                  <span>Image Credits & Source</span>
-                  <input
-                    type="text"
-                    value={form.image_credits}
-                    onChange={(e) => handleFieldChange('image_credits', e.target.value)}
-                    placeholder="e.g. Photo by Rahul / Unsplash (CC-BY-4.0)"
-                  />
-                </label>
-              </div>
-            )}
-
-            {/* TAB 3: LOCATION HIERARCHY */}
-            {activeTab === 'location' && (
-              <div className="panel-section">
-                <h3>Location Hierarchy</h3>
-                <p className="sidebar-note">
-                  Cascading dependent locations: India → State/UT → District → Tehsil → Locality / Destination.
-                </p>
-
-                <label className="sidebar-field" style={{ display: 'flex', alignItems: 'center', gap: '8px', cursor: 'pointer' }}>
-                  <input
-                    type="checkbox"
-                    checked={form.is_location_independent}
-                    onChange={(e) => handleFieldChange('is_location_independent', e.target.checked)}
-                    style={{ width: 'auto' }}
-                  />
-                  <span>Location-Independent Article (e.g. Packing Guide)</span>
-                </label>
-
-                {!form.is_location_independent && (
-                  <>
-                    <label className="sidebar-field">
-                      <span>1. State / Union Territory</span>
-                      <select
-                        value={form.state_id}
-                        onChange={(e) => handleFieldChange('state_id', e.target.value)}
-                      >
-                        <option value="">— Select State / UT —</option>
-                        {statesList.map((st) => (
-                          <option key={st.id} value={st.id}>
-                            {st.name_en} ({st.type})
-                          </option>
-                        ))}
-                      </select>
-                    </label>
-
-                    <label className="sidebar-field">
-                      <span>2. District</span>
-                      <select
-                        value={form.district_id}
-                        onChange={(e) => handleFieldChange('district_id', e.target.value)}
-                        disabled={!form.state_id}
-                      >
-                        <option value="">— Select District —</option>
-                        {availableDistricts.map((d) => (
-                          <option key={d.id} value={d.id}>
-                            {d.name_en}
-                          </option>
-                        ))}
-                      </select>
-                    </label>
-
-                    <label className="sidebar-field">
-                      <span>3. Tehsil / Sub-district</span>
-                      <select
-                        value={form.tehsil_id}
-                        onChange={(e) => handleFieldChange('tehsil_id', e.target.value)}
-                        disabled={!form.district_id}
-                      >
-                        <option value="">— Select Tehsil —</option>
-                        {availableTehsils.map((t) => (
-                          <option key={t.id} value={t.id}>
-                            {t.name_en} {t.local_label ? `(${t.local_label})` : ''}
-                          </option>
-                        ))}
-                      </select>
-                    </label>
-
-                    <label className="sidebar-field">
-                      <span>4. Village / Locality Name</span>
-                      <input
-                        type="text"
-                        value={form.locality_name}
-                        onChange={(e) => handleFieldChange('locality_name', e.target.value)}
-                        placeholder="e.g. Nawalgarh Locality / Dundlod"
-                      />
-                    </label>
-
-                    <label className="sidebar-field">
-                      <span>Primary Subject Destination</span>
-                      <select
-                        value={form.destination_id}
-                        onChange={(e) => handleFieldChange('destination_id', e.target.value)}
-                      >
-                        <option value="">— Link Related Destination —</option>
-                        {availableDestinations.map((dest) => (
-                          <option key={dest.id} value={dest.id}>
-                            {dest.name_en} ({dest.state_name || 'India'})
-                          </option>
-                        ))}
-                      </select>
-                    </label>
-
-                    <label className="sidebar-field">
-                      <span>Primary Subject Attraction / Monument</span>
-                      <select
-                        value={form.attraction_id}
-                        onChange={(e) => {
-                          const val = e.target.value;
-                          handleFieldChange('attraction_id', val);
-                          if (val) {
-                            const found = attractionsList.find((a) => a.id === val);
-                            if (found?.destination_id && !form.destination_id) {
-                              handleFieldChange('destination_id', found.destination_id);
-                            }
-                          }
-                        }}
-                      >
-                        <option value="">— Link Related Attraction / Monument —</option>
-                        {availableAttractions.map((attr) => (
-                          <option key={attr.id} value={attr.id}>
-                            {attr.name_en} ({attr.category || 'Monument'})
-                          </option>
-                        ))}
-                      </select>
-                    </label>
-                  </>
-                )}
-              </div>
-            )}
-
-            {/* TAB 4: COMPLETE SEO STUDIO */}
-            {activeTab === 'seo' && (
-              <div className="panel-section">
-                <h3>SEO Studio & Validation</h3>
-
-                <label className="sidebar-field">
-                  <span>Focus Keyword</span>
-                  <input
-                    type="text"
-                    value={form.focus_keyword}
-                    onChange={(e) => handleFieldChange('focus_keyword', e.target.value)}
-                    placeholder="e.g. nawalgarh havelis"
-                  />
-                  <small style={{ color: 'var(--muted)' }}>Used for real-time editorial quality checks.</small>
-                </label>
-
-                <label className="sidebar-field">
-                  <span>
-                    SEO Title ({titleLength}/60 chars){' '}
-                    <b style={{ color: titleLength > 60 ? '#c53929' : '#276738' }}>
-                      {titleLength > 60 ? 'Truncated' : 'Optimal'}
-                    </b>
-                  </span>
-                  <input
-                    type="text"
-                    value={form.seo_title_en}
-                    maxLength={80}
-                    placeholder={form.title_en || 'Meta Title...'}
-                    onChange={(e) => handleFieldChange('seo_title_en', e.target.value)}
-                  />
-                </label>
-
-                <label className="sidebar-field">
-                  <span>
-                    Meta Description ({descLength}/160 chars){' '}
-                    <b style={{ color: descLength > 160 ? '#c53929' : descLength < 50 ? '#926319' : '#276738' }}>
-                      {descLength > 160 ? 'Too long' : descLength < 50 ? 'Short' : 'Optimal'}
-                    </b>
-                  </span>
-                  <textarea
-                    rows={3}
-                    value={form.seo_description_en}
-                    maxLength={200}
-                    placeholder={form.excerpt_en || 'Compelling search description...'}
-                    onChange={(e) => handleFieldChange('seo_description_en', e.target.value)}
-                  />
-                </label>
-
-                <label className="sidebar-field">
-                  <span>Canonical URL Override</span>
-                  <input
-                    type="url"
-                    value={form.canonical_url}
-                    onChange={(e) => handleFieldChange('canonical_url', e.target.value)}
-                    placeholder="https://bharatyatra.in/articles/..."
-                  />
-                </label>
-
-                <label className="sidebar-field">
-                  <span>Social Sharing Image (OG Image)</span>
-                  <input
-                    type="url"
-                    value={form.og_image_url}
-                    onChange={(e) => handleFieldChange('og_image_url', e.target.value)}
-                    placeholder={form.cover_image_url || 'https://... (defaults to Featured Image)'}
-                  />
-                </label>
-
-                <label className="sidebar-field">
-                  <span>Structured Data Type</span>
-                  <select
-                    value={form.structured_data_type}
-                    onChange={(e) => handleFieldChange('structured_data_type', e.target.value)}
-                  >
-                    <option value="Article">Article (Standard)</option>
-                    <option value="TouristDestination">TouristDestination</option>
-                    <option value="TouristAttraction">TouristAttraction</option>
-                    <option value="TravelGuide">TravelGuide</option>
-                    <option value="Event">Event</option>
-                  </select>
-                </label>
-
-                {/* Google SERP Snippet Preview */}
-                <div className="serp-preview-box">
-                  <span className="serp-label">🔍 Google Search Snippet</span>
-                  <div className="serp-card">
-                    <div className="serp-url-row">
-                      <span className="serp-fav">B</span>
-                      <span className="serp-domain">BharatYatra</span>
-                      <span className="serp-breadcrumb">› articles › {form.slug || 'slug'}</span>
-                    </div>
-                    <div className="serp-title">
-                      {form.seo_title_en || form.title_en || 'Article Title · BharatYatra'}
-                    </div>
-                    <div className="serp-desc">
-                      {(form.seo_description_en || form.excerpt_en || 'Comprehensive travel guide and cultural discovery on BharatYatra.').slice(0, 160)}
-                    </div>
-                  </div>
-                </div>
-
-                {/* Social Card Preview */}
-                <div className="social-preview-box">
-                  <span className="serp-label">📱 Social Sharing Card (WhatsApp / X / FB)</span>
-                  <div className="social-card">
-                    {form.cover_image_url && (
-                      <div className="social-img">
-                        <img src={form.og_image_url || form.cover_image_url} alt="Card preview" />
+                        {form.status === 'PUBLISHED' && (
+                          <div style={{ borderTop: '1px solid #e2e8f0', paddingTop: '10px' }}>
+                            <button
+                              type="button"
+                              className="button subtle danger"
+                              style={{ width: '100%' }}
+                              onClick={() => handleStatusChange('DRAFT')}
+                            >
+                              <RotateCcw size={13} style={{ marginRight: '5px' }} />
+                              Unpublish Article
+                            </button>
+                          </div>
+                        )}
                       </div>
                     )}
-                    <div className="social-content">
-                      <span className="social-domain">BHARATYATRA.IN</span>
-                      <strong className="social-title">{form.seo_title_en || form.title_en || 'Article Title'}</strong>
-                      <p className="social-snippet">{(form.seo_description_en || form.excerpt_en || '').slice(0, 100)}</p>
+                  </div>
+
+                  {/* Excerpt Accordion */}
+                  <div className="wp-accordion-section">
+                    <button type="button" className="wp-accordion-header" onClick={() => toggleAccordion('category')}>
+                      <span>Excerpt & Category</span>
+                      {accordionState.category ? <ChevronDown size={14} /> : <ChevronRight size={14} />}
+                    </button>
+                    {accordionState.category && (
+                      <div className="wp-accordion-body">
+                        <label className="form-label">
+                          <span>Article Excerpt (Required for Publishing)</span>
+                          <textarea
+                            rows={3}
+                            value={form.excerpt_en}
+                            onChange={(e) => handleFieldChange('excerpt_en', e.target.value)}
+                            placeholder="A compelling 1-2 sentence overview shown in search results and social cards..."
+                          />
+                          <small style={{ color: form.excerpt_en.length > 200 ? '#e11d48' : '#64748b' }}>
+                            {form.excerpt_en.length} / 200 characters recommended
+                          </small>
+                        </label>
+
+                        <label className="form-label">
+                          <span>Category / Editorial Template</span>
+                          <select
+                            value={form.category}
+                            onChange={(e) => handleFieldChange('category', e.target.value)}
+                          >
+                            {CONTENT_TYPES.map((type) => (
+                              <option key={type} value={type}>{type}</option>
+                            ))}
+                          </select>
+                        </label>
+
+                        {CONTENT_TYPE_GUIDES[form.category] && (
+                          <div style={{ padding: '8px 10px', background: '#f8fafc', borderLeft: '3px solid #3b82f6', borderRadius: '4px', fontSize: '0.72rem', color: '#334155', lineHeight: 1.4 }}>
+                            <strong>💡 Editorial Guide:</strong> {CONTENT_TYPE_GUIDES[form.category]}
+                          </div>
+                        )}
+
+                        <label className="form-label">
+                          <span>Tags</span>
+                          <div style={{ display: 'flex', gap: '6px' }}>
+                            <input
+                              type="text"
+                              placeholder="Type tag & press enter..."
+                              value={tagInput}
+                              onChange={(e) => setTagInput(e.target.value)}
+                              onKeyDown={(e) => {
+                                if (e.key === 'Enter' || e.key === ',') {
+                                  e.preventDefault();
+                                  addTag(tagInput);
+                                }
+                              }}
+                            />
+                            <button type="button" className="button subtle" onClick={() => addTag(tagInput)}>
+                              Add
+                            </button>
+                          </div>
+                        </label>
+
+                        <div className="tag-chips-container">
+                          {tagsArray.map((tag) => (
+                            <span key={tag} className="tag-chip">
+                              #{tag}
+                              <button type="button" onClick={() => removeTag(tag)}>
+                                <X size={12} />
+                              </button>
+                            </span>
+                          ))}
+                        </div>
+                      </div>
+                    )}
+                  </div>
+
+                  {/* Featured Cover Image Accordion */}
+                  <div className="wp-accordion-section">
+                    <button type="button" className="wp-accordion-header" onClick={() => toggleAccordion('media')}>
+                      <span>Featured Image</span>
+                      {accordionState.media ? <ChevronDown size={14} /> : <ChevronRight size={14} />}
+                    </button>
+                    {accordionState.media && (
+                      <div className="wp-accordion-body">
+                        {form.cover_image_url ? (
+                          <div style={{ position: 'relative', borderRadius: '8px', overflow: 'hidden', border: '1px solid #e2e8f0', aspectRatio: '16/9' }}>
+                            <img
+                              src={form.cover_image_url}
+                              alt={form.cover_image_alt || 'Cover preview'}
+                              style={{ width: '100%', height: '100%', objectFit: 'cover' }}
+                            />
+                            <button
+                              type="button"
+                              onClick={() => handleFieldChange('cover_image_url', '')}
+                              style={{ position: 'absolute', top: '8px', right: '8px', background: 'rgba(0,0,0,0.6)', color: '#fff', border: 'none', borderRadius: '50%', width: '24px', height: '24px', cursor: 'pointer', display: 'grid', placeItems: 'center' }}
+                              title="Remove image"
+                            >
+                              <X size={14} />
+                            </button>
+                          </div>
+                        ) : (
+                          <div
+                            onClick={() => openMediaPicker('cover')}
+                            style={{ border: '2px dashed #cbd5e1', borderRadius: '8px', padding: '24px', textAlign: 'center', cursor: 'pointer', background: '#f8fafc' }}
+                          >
+                            <ImageIcon size={28} style={{ color: '#94a3b8', margin: '0 auto 8px' }} />
+                            <p style={{ margin: 0, fontSize: '0.82rem', fontWeight: 600, color: '#334155' }}>
+                              Set Featured Image
+                            </p>
+                            <span style={{ fontSize: '0.72rem', color: '#64748b' }}>
+                              Upload or choose from Media Library
+                            </span>
+                          </div>
+                        )}
+
+                        <div style={{ display: 'flex', gap: '8px', marginTop: '4px' }}>
+                          <button
+                            type="button"
+                            className="button subtle"
+                            style={{ flex: 1 }}
+                            onClick={() => openMediaPicker('cover')}
+                          >
+                            <ImageIcon size={14} style={{ marginRight: '5px' }} />
+                            Media Library
+                          </button>
+                        </div>
+
+                        {form.cover_image_url && (
+                          <>
+                            <label className="form-label">
+                              <span>Image Alt Text (Accessibility & SEO)</span>
+                              <input
+                                type="text"
+                                value={form.cover_image_alt}
+                                onChange={(e) => handleFieldChange('cover_image_alt', e.target.value)}
+                                placeholder="Describe the image content..."
+                              />
+                            </label>
+
+                            <label className="form-label">
+                              <span>Image Credit & Source</span>
+                              <input
+                                type="text"
+                                value={form.cover_image_credit}
+                                onChange={(e) => handleFieldChange('cover_image_credit', e.target.value)}
+                                placeholder="e.g. Photo by Rajasthan Tourism / BharatYatra"
+                              />
+                            </label>
+
+                            <label className="form-label">
+                              <span>License</span>
+                              <input
+                                type="text"
+                                value={form.cover_image_license}
+                                onChange={(e) => handleFieldChange('cover_image_license', e.target.value)}
+                                placeholder="e.g. Editorial Use / CC BY-SA 4.0"
+                              />
+                            </label>
+                          </>
+                        )}
+                      </div>
+                    )}
+                  </div>
+
+                  {/* Geographic Location Accordion */}
+                  <div className="wp-accordion-section">
+                    <button type="button" className="wp-accordion-header" onClick={() => toggleAccordion('location')}>
+                      <span>Geographic Location</span>
+                      {accordionState.location ? <ChevronDown size={14} /> : <ChevronRight size={14} />}
+                    </button>
+                    {accordionState.location && (
+                      <div className="wp-accordion-body">
+                        <label className="form-label">
+                          <span>State / Union Territory</span>
+                          <select
+                            value={form.state_id}
+                            onChange={(e) => handleFieldChange('state_id', e.target.value)}
+                          >
+                            <option value="">— Select State —</option>
+                            {statesList.map((s) => (
+                              <option key={s.id} value={s.id}>{s.name_en}</option>
+                            ))}
+                          </select>
+                        </label>
+
+                        <label className="form-label">
+                          <span>District (Filtered by State)</span>
+                          <select
+                            value={form.district_id}
+                            onChange={(e) => handleFieldChange('district_id', e.target.value)}
+                            disabled={!form.state_id}
+                          >
+                            <option value="">— Select District —</option>
+                            {filteredDistricts.map((d) => (
+                              <option key={d.id} value={d.id}>{d.name_en}</option>
+                            ))}
+                          </select>
+                        </label>
+
+                        <label className="form-label">
+                          <span>Tehsil / Sub-district (Filtered by District)</span>
+                          <select
+                            value={form.tehsil_id}
+                            onChange={(e) => handleFieldChange('tehsil_id', e.target.value)}
+                            disabled={!form.district_id}
+                          >
+                            <option value="">— Select Tehsil —</option>
+                            {filteredTehsils.map((t) => (
+                              <option key={t.id} value={t.id}>{t.name_en}</option>
+                            ))}
+                          </select>
+                        </label>
+
+                        <label className="form-label">
+                          <span>Locality / Village</span>
+                          <input
+                            type="text"
+                            value={form.locality_name}
+                            onChange={(e) => handleFieldChange('locality_name', e.target.value)}
+                            placeholder="e.g. Heritage Town, Poddar Ward"
+                          />
+                          <small style={{ color: '#64748b' }}>
+                            Village/locality model gap documented; saved in locality metadata until schema migration.
+                          </small>
+                        </label>
+
+                        <label className="form-label">
+                          <span>Related Destination</span>
+                          <select
+                            value={form.destination_id}
+                            onChange={(e) => handleFieldChange('destination_id', e.target.value)}
+                          >
+                            <option value="">— Select Destination —</option>
+                            {filteredDestinations.map((dest) => (
+                              <option key={dest.id} value={dest.id}>{dest.name_en} ({dest.state_name || 'India'})</option>
+                            ))}
+                          </select>
+                        </label>
+                      </div>
+                    )}
+                  </div>
+
+                  {/* Danger Zone Accordion */}
+                  <div className="wp-accordion-section">
+                    <button type="button" className="wp-accordion-header" onClick={() => toggleAccordion('danger')}>
+                      <span style={{ color: '#dc2626' }}>Actions & Trash</span>
+                      {accordionState.danger ? <ChevronDown size={14} /> : <ChevronRight size={14} />}
+                    </button>
+                    {accordionState.danger && (
+                      <div className="wp-accordion-body">
+                        {form.id && (
+                          <>
+                            <button
+                              type="button"
+                              className="button subtle"
+                              style={{ width: '100%' }}
+                              onClick={handleDuplicate}
+                            >
+                              <Copy size={13} style={{ marginRight: '5px' }} />
+                              Duplicate Article
+                            </button>
+
+                            <button
+                              type="button"
+                              className="button subtle danger"
+                              style={{ width: '100%' }}
+                              onClick={() => handleDelete(false)}
+                            >
+                              <Trash2 size={13} style={{ marginRight: '5px' }} />
+                              Move to Trash (Archive)
+                            </button>
+
+                            <button
+                              type="button"
+                              className="button subtle danger"
+                              style={{ width: '100%', borderColor: '#ef4444', color: '#b91c1c' }}
+                              onClick={() => handleDelete(true)}
+                            >
+                              <Trash2 size={13} style={{ marginRight: '5px' }} />
+                              Permanently Delete
+                            </button>
+                          </>
+                        )}
+                      </div>
+                    )}
+                  </div>
+                </>
+              )}
+
+              {/* TAB 2: SEO & SOCIAL CONTROLS */}
+              {activeTab === 'seo' && (
+                <div style={{ display: 'flex', flexDirection: 'column', gap: '18px' }}>
+                  {/* SEO Score Overview */}
+                  <div style={{ padding: '14px', borderRadius: '8px', background: '#f8fafc', border: '1px solid #e2e8f0' }}>
+                    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '8px' }}>
+                      <span style={{ fontSize: '0.8rem', fontWeight: 700, color: '#1e293b' }}>
+                        SEO Content Quality
+                      </span>
+                      <span style={{ fontSize: '0.85rem', fontWeight: 800, color: seoScore >= 80 ? '#16a34a' : (seoScore >= 50 ? '#d97706' : '#dc2626') }}>
+                        {seoScore} / 100
+                      </span>
+                    </div>
+                    <div style={{ width: '100%', height: '6px', background: '#e2e8f0', borderRadius: '99px', overflow: 'hidden' }}>
+                      <div
+                        style={{
+                          width: `${seoScore}%`,
+                          height: '100%',
+                          background: seoScore >= 80 ? '#16a34a' : (seoScore >= 50 ? '#d97706' : '#dc2626'),
+                          transition: 'width 0.3s ease',
+                        }}
+                      />
+                    </div>
+                  </div>
+
+                  {/* Google SERP Snippet Preview */}
+                  <div>
+                    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '6px' }}>
+                      <span style={{ fontSize: '0.78rem', fontWeight: 700, color: '#334155' }}>
+                        Google Search Preview
+                      </span>
+                      <div style={{ display: 'flex', gap: '4px' }}>
+                        <button
+                          type="button"
+                          className={`button subtle ${serpDevice === 'desktop' ? 'active' : ''}`}
+                          style={{ padding: '2px 6px', fontSize: '0.68rem', minHeight: '24px' }}
+                          onClick={() => setSerpDevice('desktop')}
+                        >
+                          Desktop
+                        </button>
+                        <button
+                          type="button"
+                          className={`button subtle ${serpDevice === 'mobile' ? 'active' : ''}`}
+                          style={{ padding: '2px 6px', fontSize: '0.68rem', minHeight: '24px' }}
+                          onClick={() => setSerpDevice('mobile')}
+                        >
+                          Mobile
+                        </button>
+                      </div>
+                    </div>
+
+                    <div className="google-serp-preview">
+                      <div className="serp-url">
+                        <span>🌐 BharatYatra.in</span>
+                        <span>› articles › {form.slug || 'untitled'}</span>
+                      </div>
+                      <div className="serp-title">
+                        {seoTitle || 'Article Title | BharatYatra'}
+                      </div>
+                      <div className="serp-desc">
+                        {seoDesc || 'Add a compelling meta description to guide travelers from search engines.'}
+                      </div>
+                    </div>
+                  </div>
+
+                  {/* SEO Title Input */}
+                  <label className="form-label">
+                    <div style={{ display: 'flex', justifyContent: 'space-between' }}>
+                      <span>SEO Meta Title</span>
+                      <span style={{ color: titleLengthOk ? '#16a34a' : '#d97706' }}>
+                        {seoTitle.length} / 60
+                      </span>
+                    </div>
+                    <input
+                      type="text"
+                      value={form.seo_title_en}
+                      onChange={(e) => handleFieldChange('seo_title_en', e.target.value)}
+                      placeholder={form.title_en || 'Custom SEO Title...'}
+                    />
+                  </label>
+
+                  {/* Meta Description Input */}
+                  <label className="form-label">
+                    <div style={{ display: 'flex', justifyContent: 'space-between' }}>
+                      <span>SEO Meta Description</span>
+                      <span style={{ color: descLengthOk ? '#16a34a' : '#d97706' }}>
+                        {seoDesc.length} / 160
+                      </span>
+                    </div>
+                    <textarea
+                      rows={3}
+                      value={form.seo_description_en}
+                      onChange={(e) => handleFieldChange('seo_description_en', e.target.value)}
+                      placeholder="Concise summary for search engine results..."
+                    />
+                  </label>
+
+                  {/* Focus Keyword & Secondary Keywords */}
+                  <label className="form-label">
+                    <span>Focus Keyword</span>
+                    <input
+                      type="text"
+                      value={form.focus_keyword}
+                      onChange={(e) => handleFieldChange('focus_keyword', e.target.value)}
+                      placeholder="e.g. Nawalgarh travel guide"
+                    />
+                  </label>
+
+                  <label className="form-label">
+                    <span>Secondary Keywords</span>
+                    <input
+                      type="text"
+                      value={form.secondary_keywords}
+                      onChange={(e) => handleFieldChange('secondary_keywords', e.target.value)}
+                      placeholder="e.g. Shekhawati havelis, Poddar museum timings"
+                    />
+                  </label>
+
+                  {/* Canonical URL */}
+                  <label className="form-label">
+                    <span>Canonical URL (Override)</span>
+                    <input
+                      type="url"
+                      value={form.canonical_url}
+                      onChange={(e) => handleFieldChange('canonical_url', e.target.value)}
+                      placeholder={`https://bharat-yatra-in.vercel.app/articles/${form.slug}`}
+                    />
+                  </label>
+
+                  {/* Robots & Schema Type */}
+                  <label className="form-label">
+                    <span>Robots Meta Directives</span>
+                    <select
+                      value={form.robots_index}
+                      onChange={(e) => handleFieldChange('robots_index', e.target.value)}
+                    >
+                      <option value="index, follow">Index, Follow (Recommended)</option>
+                      <option value="noindex, follow">Noindex, Follow</option>
+                      <option value="noindex, nofollow">Noindex, Nofollow</option>
+                    </select>
+                  </label>
+
+                  <label className="form-label">
+                    <span>Structured Data Schema Type</span>
+                    <select
+                      value={form.structured_data_type}
+                      onChange={(e) => handleFieldChange('structured_data_type', e.target.value)}
+                    >
+                      <option value="Article">Article (Standard)</option>
+                      <option value="NewsArticle">NewsArticle</option>
+                      <option value="BlogPosting">BlogPosting</option>
+                      <option value="TravelGuide">TravelGuide</option>
+                    </select>
+                  </label>
+
+                  {/* SEO Quality Checklist */}
+                  <div style={{ borderTop: '1px solid #e2e8f0', paddingTop: '14px' }}>
+                    <span style={{ fontSize: '0.8rem', fontWeight: 700, color: '#1e293b', display: 'block', marginBottom: '8px' }}>
+                      Editorial SEO Checklist
+                    </span>
+                    <div style={{ display: 'flex', flexDirection: 'column', gap: '6px' }}>
+                      {seoChecklistItems.map((item, idx) => (
+                        <div key={idx} style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', fontSize: '0.74rem' }}>
+                          <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
+                            {item.passed ? (
+                              <CheckCircle2 size={13} style={{ color: '#16a34a' }} />
+                            ) : (
+                              <AlertCircle size={13} style={{ color: '#e11d48' }} />
+                            )}
+                            <span style={{ color: item.passed ? '#1e293b' : '#64748b' }}>{item.label}</span>
+                          </div>
+                          {item.val && <strong style={{ color: '#64748b' }}>{item.val}</strong>}
+                        </div>
+                      ))}
                     </div>
                   </div>
                 </div>
+              )}
 
-                {/* Automated SEO Checklist */}
-                <div className="seo-audit-box">
-                  <h4>Editorial SEO Audit</h4>
-                  <ul className="audit-checklist">
-                    <li className={form.title_en ? 'pass' : 'fail'}>
-                      {form.title_en ? '✓' : '✗'} Article title entered
-                    </li>
-                    <li className={form.slug ? 'pass' : 'fail'}>
-                      {form.slug ? '✓' : '✗'} Clean unique URL slug generated
-                    </li>
-                    <li className={form.excerpt_en ? 'pass' : 'fail'}>
-                      {form.excerpt_en ? '✓' : '✗'} Excerpt / summary provided
-                    </li>
-                    <li className={hasAltText ? 'pass' : 'warn'}>
-                      {hasAltText ? '✓' : '⚠️'} Featured image alt text present
-                    </li>
-                    <li className={hasHeadings ? 'pass' : 'warn'}>
-                      {hasHeadings ? '✓' : '⚠️'} Subheadings (H2/H3) used in content
-                    </li>
-                    {focusKw && (
-                      <>
-                        <li className={titleHasKw ? 'pass' : 'fail'}>
-                          {titleHasKw ? '✓' : '✗'} Focus keyword in title
-                        </li>
-                        <li className={descHasKw ? 'pass' : 'fail'}>
-                          {descHasKw ? '✓' : '✗'} Focus keyword in meta description
-                        </li>
-                        <li className={bodyHasKw ? 'pass' : 'warn'}>
-                          {bodyHasKw ? '✓' : '⚠️'} Focus keyword in content body
-                        </li>
-                      </>
+              {/* TAB 3: OUTLINE & STATS */}
+              {activeTab === 'outline' && (
+                <div style={{ display: 'flex', flexDirection: 'column', gap: '16px' }}>
+                  <div style={{ padding: '12px', background: '#f8fafc', borderRadius: '8px', border: '1px solid #e2e8f0' }}>
+                    <span style={{ fontSize: '0.75rem', fontWeight: 700, color: '#334155', display: 'block', marginBottom: '6px' }}>
+                      Document Statistics
+                    </span>
+                    <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '8px', fontSize: '0.75rem' }}>
+                      <div>Words: <strong>{words}</strong></div>
+                      <div>Characters: <strong>{strippedText.length}</strong></div>
+                      <div>Headings: <strong>{tableOfContents.length}</strong></div>
+                      <div>Read Time: <strong>~{readingTime} min</strong></div>
+                    </div>
+                  </div>
+
+                  <div>
+                    <span style={{ fontSize: '0.8rem', fontWeight: 700, color: '#1e293b', display: 'block', marginBottom: '8px' }}>
+                      Table of Contents Outline
+                    </span>
+                    {tableOfContents.length === 0 ? (
+                      <p style={{ fontSize: '0.75rem', color: '#64748b', fontStyle: 'italic' }}>
+                        No H2 or H3 section headings detected in article body yet. Add headings using the block selector in the toolbar.
+                      </p>
+                    ) : (
+                      <ul style={{ listStyle: 'none', padding: 0, margin: 0, display: 'flex', flexDirection: 'column', gap: '6px' }}>
+                        {tableOfContents.map((h, idx) => (
+                          <li
+                            key={idx}
+                            style={{
+                              paddingLeft: h.level === 3 ? '16px' : '0',
+                              fontSize: '0.78rem',
+                              color: h.level === 2 ? '#1e293b' : '#64748b',
+                              fontWeight: h.level === 2 ? 600 : 400,
+                              display: 'flex',
+                              alignItems: 'center',
+                              gap: '6px',
+                            }}
+                          >
+                            <span style={{ fontSize: '0.65rem', padding: '1px 4px', borderRadius: '3px', background: h.level === 2 ? '#e0f2fe' : '#f1f5f9', color: h.level === 2 ? '#0369a1' : '#64748b' }}>
+                              H{h.level}
+                            </span>
+                            <span style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                              {h.text}
+                            </span>
+                          </li>
+                        ))}
+                      </ul>
                     )}
-                    <li className={words >= 250 ? 'pass' : 'warn'}>
-                      {words >= 250 ? '✓' : '⚠️'} Word count: {words} words {words < 250 ? '(Short)' : '(Good)'}
-                    </li>
-                  </ul>
-                </div>
-              </div>
-            )}
-
-            {/* TAB 5: FORMAT, TEMPLATE & TAXONOMY */}
-            {activeTab === 'template' && (
-              <div className="panel-section">
-                <h3>Content Type & Taxonomy</h3>
-
-                <label className="sidebar-field">
-                  <span>Content Type & Public Template</span>
-                  <select
-                    value={form.category}
-                    onChange={(e) => handleFieldChange('category', e.target.value)}
-                  >
-                    {CONTENT_TYPES.map((type) => (
-                      <option key={type} value={type}>
-                        {type}
-                      </option>
-                    ))}
-                  </select>
-                </label>
-
-                {CONTENT_TYPE_GUIDES[form.category] && (
-                  <div className="type-guidance-card">
-                    <strong>💡 Template Guidelines:</strong>
-                    <p>{CONTENT_TYPE_GUIDES[form.category]}</p>
-                  </div>
-                )}
-
-                <label className="sidebar-field">
-                  <span>Summary / Excerpt (Lead Paragraph)</span>
-                  <textarea
-                    rows={4}
-                    value={form.excerpt_en}
-                    onChange={(e) => handleFieldChange('excerpt_en', e.target.value)}
-                    placeholder="Enter a compelling 1–2 sentence summary that hooks the reader."
-                  />
-                </label>
-
-                {/* Interactive Tags Manager */}
-                <div className="tags-manager">
-                  <span>Tags</span>
-                  <div className="tag-chips-wrap">
-                    {tagsArray.map((tag) => (
-                      <span key={tag} className="tag-chip">
-                        #{tag}
-                        <button type="button" onClick={() => removeTag(tag)}>✕</button>
-                      </span>
-                    ))}
-                  </div>
-                  <div className="tag-input-row">
-                    <input
-                      type="text"
-                      placeholder="Add tag and press Enter..."
-                      value={tagInput}
-                      onChange={(e) => setTagInput(e.target.value)}
-                      onKeyDown={(e) => {
-                        if (e.key === 'Enter') {
-                          e.preventDefault();
-                          addTag(tagInput);
-                        }
-                      }}
-                    />
-                    <button type="button" className="button subtle" onClick={() => addTag(tagInput)}>
-                      + Add
-                    </button>
                   </div>
                 </div>
-              </div>
-            )}
-          </div>
-        </aside>
+              )}
+            </div>
+          </aside>
+        )}
       </div>
 
       {/* ====================================================
-          4. SUPABASE MEDIA LIBRARY MODAL
+          MEDIA LIBRARY MODAL
           ==================================================== */}
       {mediaPickerOpen && (
-        <div className="media-modal-backdrop" onClick={() => setMediaPickerOpen(false)}>
-          <div className="media-modal-card" onClick={(e) => e.stopPropagation()}>
-            <div className="media-modal-header">
-              <h3>Supabase Media Library</h3>
-              <button type="button" className="close-btn" onClick={() => setMediaPickerOpen(false)}>✕</button>
+        <div className="link-modal-overlay">
+          <div className="link-modal-card" style={{ maxWidth: '750px', maxHeight: '85vh', display: 'flex', flexDirection: 'column' }}>
+            <div className="link-modal-header">
+              <div className="link-modal-title">
+                <ImageIcon size={18} />
+                <span>Media Assets Library</span>
+              </div>
+              <button type="button" className="link-modal-close" onClick={() => setMediaPickerOpen(false)}>
+                <X size={16} />
+              </button>
             </div>
 
-            <div className="media-modal-toolbar">
-              <input
-                type="text"
-                placeholder="Search media assets..."
-                value={mediaSearch}
-                onChange={(e) => setMediaSearch(e.target.value)}
-              />
-              <label className="button primary subtle" style={{ cursor: 'pointer', margin: 0 }}>
-                {uploadingImage ? 'Uploading…' : '📁 Upload New Asset'}
+            <div style={{ padding: '16px', borderBottom: '1px solid #e2e8f0', display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: '12px', flexWrap: 'wrap' }}>
+              <label className="button primary" style={{ cursor: 'pointer', margin: 0 }}>
+                <Upload size={14} style={{ marginRight: '6px' }} />
+                {uploadingImage ? 'Uploading...' : 'Upload New Image'}
                 <input
                   type="file"
                   accept="image/jpeg,image/png,image/webp,image/avif"
@@ -1301,604 +1371,51 @@ export default function ArticleEditor({ article, onBack, onSaved, role = 'admin'
                   disabled={uploadingImage}
                 />
               </label>
+              <small style={{ color: '#64748b' }}>Max size 5 MB (JPEG, PNG, WebP)</small>
             </div>
 
-            <div className="media-modal-grid">
-              {mediaLoading ? (
-                <p style={{ padding: '20px', color: 'var(--muted)' }}>Loading storage assets…</p>
-              ) : mediaAssets.length === 0 ? (
-                <p style={{ padding: '20px', color: 'var(--muted)' }}>No media assets found in library.</p>
-              ) : (
-                mediaAssets
-                  .filter((item) =>
-                    !mediaSearch ||
-                    (item.storage_path || '').toLowerCase().includes(mediaSearch.toLowerCase()) ||
-                    (item.alt_en || '').toLowerCase().includes(mediaSearch.toLowerCase())
-                  )
-                  .map((item) => (
-                    <div
-                      key={item.id}
-                      className="media-item-card"
-                      onClick={() => {
-                        const url = item.public_url;
-                        if (mediaPickerTarget === 'cover') {
-                          handleFieldChange('cover_image_url', url);
-                          if (item.alt_en) handleFieldChange('cover_image_alt', item.alt_en);
-                        } else {
-                          insertFormatting(`\n![${item.alt_en || form.title_en}](${url})\n`);
-                        }
-                        setMediaPickerOpen(false);
-                      }}
-                    >
-                      <img src={item.public_url} alt={item.alt_en || 'Thumbnail'} />
-                      <span className="media-item-path">{item.storage_path}</span>
-                    </div>
-                  ))
+            <div style={{ flex: 1, overflowY: 'auto', padding: '16px', display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(130px, 1fr))', gap: '12px' }}>
+              {mediaLoading && <p style={{ gridColumn: '1/-1', textAlign: 'center', color: '#64748b' }}>Loading media items...</p>}
+              {!mediaLoading && mediaAssets.length === 0 && (
+                <p style={{ gridColumn: '1/-1', textAlign: 'center', color: '#64748b' }}>No images uploaded yet. Click &ldquo;Upload New Image&rdquo; above.</p>
               )}
+              {mediaAssets.map((asset) => (
+                <div
+                  key={asset.id}
+                  onClick={() => {
+                    if (mediaPickerTarget === 'cover') {
+                      handleFieldChange('cover_image_url', asset.public_url);
+                      if (!form.cover_image_alt) handleFieldChange('cover_image_alt', asset.alt_en || form.title_en);
+                    }
+                    setMediaPickerOpen(false);
+                  }}
+                  style={{
+                    border: '1px solid #e2e8f0',
+                    borderRadius: '8px',
+                    overflow: 'hidden',
+                    cursor: 'pointer',
+                    aspectRatio: '1',
+                    background: '#f8fafc',
+                    position: 'relative',
+                  }}
+                >
+                  <img
+                    src={asset.public_url}
+                    alt={asset.alt_en || 'Media thumbnail'}
+                    style={{ width: '100%', height: '100%', objectFit: 'cover' }}
+                  />
+                </div>
+              ))}
+            </div>
+
+            <div className="link-modal-actions" style={{ padding: '12px 18px', borderTop: '1px solid #e2e8f0' }}>
+              <button type="button" className="button subtle" onClick={() => setMediaPickerOpen(false)}>
+                Cancel
+              </button>
             </div>
           </div>
         </div>
       )}
-
-      {/* Scoped CSS styling for WordPress Content Studio */}
-      <style jsx>{`
-        .article-studio-root {
-          min-height: 100vh;
-          background: #fbfbf9;
-          display: flex;
-          flex-direction: column;
-          color: var(--ink);
-        }
-        .studio-top-bar {
-          position: sticky;
-          top: 0;
-          z-index: 100;
-          height: 64px;
-          background: #ffffff;
-          border-bottom: 1px solid #e2e6de;
-          display: flex;
-          align-items: center;
-          justify-content: space-between;
-          padding: 0 24px;
-          box-shadow: 0 2px 10px rgba(0, 0, 0, 0.03);
-        }
-        .top-bar-left, .top-bar-right {
-          display: flex;
-          align-items: center;
-          gap: 12px;
-        }
-        .doc-meta {
-          display: flex;
-          align-items: center;
-          gap: 8px;
-        }
-        .autosave-tag {
-          font-size: 0.72rem;
-          color: #73817a;
-          font-weight: 500;
-        }
-        .view-mode-toggle {
-          display: flex;
-          background: #f1f4ed;
-          padding: 3px;
-          border-radius: 8px;
-          gap: 4px;
-        }
-        .mode-btn {
-          background: none;
-          border: none;
-          padding: 5px 12px;
-          font-size: 0.75rem;
-          font-weight: 600;
-          color: #495d52;
-          border-radius: 6px;
-          cursor: pointer;
-        }
-        .mode-btn.active {
-          background: #ffffff;
-          color: var(--ink);
-          box-shadow: 0 1px 4px rgba(0, 0, 0, 0.08);
-        }
-        .studio-workspace {
-          display: grid;
-          grid-template-columns: 1fr 360px;
-          flex: 1;
-          align-items: start;
-        }
-        .studio-workspace.preview-desktop .canvas-inner {
-          max-width: 900px;
-        }
-        .studio-workspace.preview-mobile .canvas-inner {
-          max-width: 420px;
-          border: 1px solid #dce4dc;
-          border-radius: 24px;
-          box-shadow: 0 12px 36px rgba(0, 0, 0, 0.06);
-          margin-top: 20px;
-          margin-bottom: 20px;
-        }
-        .studio-canvas {
-          padding: 32px 48px;
-          display: flex;
-          justify-content: center;
-        }
-        .canvas-inner {
-          width: 100%;
-          max-width: 820px;
-          background: #ffffff;
-          border-radius: 12px;
-          border: 1px solid #e6e9e2;
-          padding: 36px 44px;
-          box-shadow: 0 4px 20px rgba(0, 0, 0, 0.02);
-        }
-        .article-title-input {
-          width: 100%;
-          border: none;
-          outline: none;
-          font-family: 'Playfair Display', Georgia, serif;
-          font-size: clamp(1.8rem, 3.2vw, 2.6rem);
-          font-weight: 600;
-          color: var(--ink);
-          margin-bottom: 8px;
-        }
-        .slug-bar {
-          display: flex;
-          align-items: center;
-          gap: 6px;
-          font-size: 0.78rem;
-          color: #73817a;
-          margin-bottom: 24px;
-          background: #f7f9f6;
-          padding: 6px 12px;
-          border-radius: 6px;
-        }
-        .slug-input {
-          border: 1px solid #cbd5cc;
-          border-radius: 4px;
-          padding: 2px 6px;
-          font-size: 0.78rem;
-          outline: none;
-          color: var(--ink);
-        }
-        .slug-toggle-btn {
-          margin-left: auto;
-          background: none;
-          border: none;
-          font-size: 0.72rem;
-          font-weight: 600;
-          color: #247a72;
-          cursor: pointer;
-        }
-        .editor-toolbar {
-          display: flex;
-          align-items: center;
-          gap: 6px;
-          padding: 8px 12px;
-          background: #f9faf7;
-          border: 1px solid #e1e5dd;
-          border-radius: 8px;
-          margin-bottom: 20px;
-          flex-wrap: wrap;
-        }
-        .toolbar-group {
-          display: flex;
-          align-items: center;
-          gap: 4px;
-        }
-        .toolbar-group button {
-          background: #ffffff;
-          border: 1px solid #d9dfd7;
-          border-radius: 4px;
-          padding: 4px 8px;
-          font-size: 0.75rem;
-          font-weight: 600;
-          color: #3b5046;
-          cursor: pointer;
-        }
-        .toolbar-group button:hover {
-          background: #edf2eb;
-          color: var(--ink);
-        }
-        .toolbar-sep {
-          width: 1px;
-          height: 18px;
-          background: #d9dfd7;
-          margin: 0 4px;
-        }
-        .article-body-textarea {
-          width: 100%;
-          min-height: 520px;
-          border: none;
-          outline: none;
-          resize: vertical;
-          font-size: 1.05rem;
-          line-height: 1.85;
-          color: #243b35;
-          font-family: inherit;
-        }
-        .canvas-footer {
-          display: flex;
-          align-items: center;
-          gap: 16px;
-          padding-top: 18px;
-          border-top: 1px solid #edf0ea;
-          font-size: 0.75rem;
-          color: #7a8880;
-        }
-        .studio-sidebar {
-          background: #ffffff;
-          border-left: 1px solid #e2e6de;
-          min-height: calc(100vh - 64px);
-          position: sticky;
-          top: 64px;
-          overflow-y: auto;
-        }
-        .sidebar-tabs {
-          display: flex;
-          border-bottom: 1px solid #e2e6de;
-          background: #f7f9f6;
-        }
-        .sidebar-tabs button {
-          flex: 1;
-          padding: 12px 6px;
-          background: none;
-          border: none;
-          border-bottom: 2px solid transparent;
-          font-size: 0.74rem;
-          font-weight: 600;
-          color: #65756c;
-          cursor: pointer;
-          white-space: nowrap;
-        }
-        .sidebar-tabs button.active {
-          color: var(--ink);
-          border-bottom-color: var(--ink);
-          background: #ffffff;
-        }
-        .sidebar-panel-content {
-          padding: 20px;
-        }
-        .panel-section h3 {
-          margin: 0 0 16px 0;
-          font-size: 1.05rem;
-          color: var(--ink);
-        }
-        .sidebar-field {
-          display: grid;
-          gap: 6px;
-          margin-bottom: 16px;
-          font-size: 0.74rem;
-          font-weight: 600;
-          color: #495d52;
-        }
-        .sidebar-field input, .sidebar-field select, .sidebar-field textarea {
-          width: 100%;
-          padding: 8px 10px;
-          border: 1px solid #d5dbd3;
-          border-radius: 6px;
-          font-size: 0.8rem;
-          color: var(--ink);
-          outline: none;
-        }
-        .sidebar-field input:focus, .sidebar-field select:focus, .sidebar-field textarea:focus {
-          border-color: #247a72;
-          box-shadow: 0 0 0 2px rgba(36, 122, 114, 0.12);
-        }
-        .featured-image-box {
-          position: relative;
-          width: 100%;
-          height: 160px;
-          border-radius: 8px;
-          overflow: hidden;
-          border: 1px solid #e1e5de;
-        }
-        .featured-image-box img {
-          width: 100%;
-          height: 100%;
-          object-fit: cover;
-        }
-        .image-remove-btn {
-          position: absolute;
-          top: 8px;
-          right: 8px;
-          background: rgba(0, 0, 0, 0.65);
-          color: #fff;
-          border: none;
-          border-radius: 4px;
-          padding: 3px 8px;
-          font-size: 0.7rem;
-          cursor: pointer;
-        }
-        .featured-image-placeholder {
-          height: 140px;
-          border: 2px dashed #d5dbd3;
-          border-radius: 8px;
-          display: flex;
-          flex-direction: column;
-          align-items: center;
-          justify-content: center;
-          color: #7b8a82;
-          font-size: 0.8rem;
-        }
-        .featured-image-placeholder span {
-          font-size: 1.8rem;
-          margin-bottom: 4px;
-        }
-        .sidebar-note {
-          font-size: 0.74rem;
-          color: #73817a;
-          line-height: 1.5;
-          margin-bottom: 14px;
-        }
-        .serp-preview-box, .social-preview-box {
-          margin: 18px 0;
-          background: #f8faf7;
-          border: 1px solid #e1e6de;
-          border-radius: 8px;
-          padding: 12px;
-        }
-        .serp-label {
-          font-size: 0.68rem;
-          font-weight: 700;
-          color: #5c6c64;
-          text-transform: uppercase;
-          letter-spacing: 0.05em;
-          display: block;
-          margin-bottom: 8px;
-        }
-        .serp-card {
-          background: #ffffff;
-          border: 1px solid #e6e9e4;
-          border-radius: 6px;
-          padding: 10px 12px;
-        }
-        .serp-url-row {
-          display: flex;
-          align-items: center;
-          gap: 6px;
-          font-size: 0.72rem;
-          color: #202124;
-          margin-bottom: 3px;
-        }
-        .serp-fav {
-          width: 14px;
-          height: 14px;
-          background: #247a72;
-          color: #fff;
-          border-radius: 50%;
-          display: grid;
-          place-items: center;
-          font-size: 8px;
-          font-weight: 700;
-        }
-        .serp-title {
-          font-size: 0.95rem;
-          color: #1a0dab;
-          font-family: arial, sans-serif;
-          font-weight: 500;
-          line-height: 1.3;
-          margin-bottom: 4px;
-        }
-        .serp-desc {
-          font-size: 0.78rem;
-          color: #4d5156;
-          line-height: 1.4;
-        }
-        .social-card {
-          background: #ffffff;
-          border: 1px solid #e6e9e4;
-          border-radius: 6px;
-          overflow: hidden;
-        }
-        .social-img {
-          height: 110px;
-          overflow: hidden;
-        }
-        .social-img img {
-          width: 100%;
-          height: 100%;
-          object-fit: cover;
-        }
-        .social-content {
-          padding: 8px 10px;
-        }
-        .social-domain {
-          font-size: 0.65rem;
-          color: #7b8a82;
-          display: block;
-        }
-        .social-title {
-          font-size: 0.82rem;
-          color: var(--ink);
-          display: block;
-          margin: 2px 0;
-        }
-        .social-snippet {
-          font-size: 0.72rem;
-          color: #65756c;
-          margin: 0;
-        }
-        .seo-audit-box {
-          background: #ffffff;
-          border: 1px solid #e2e6de;
-          border-radius: 8px;
-          padding: 12px;
-          margin-top: 16px;
-        }
-        .seo-audit-box h4 {
-          margin: 0 0 8px 0;
-          font-size: 0.8rem;
-        }
-        .audit-checklist {
-          list-style: none;
-          margin: 0;
-          padding: 0;
-          display: grid;
-          gap: 6px;
-          font-size: 0.72rem;
-        }
-        .audit-checklist li.pass {
-          color: #276738;
-        }
-        .audit-checklist li.fail {
-          color: #c53929;
-        }
-        .audit-checklist li.warn {
-          color: #926319;
-        }
-        .type-guidance-card {
-          background: #fbf9f2;
-          border-left: 3px solid #c58b32;
-          border-radius: 6px;
-          padding: 10px 12px;
-          margin-bottom: 16px;
-          font-size: 0.75rem;
-          color: #5e4f35;
-        }
-        .type-guidance-card p {
-          margin: 4px 0 0 0;
-          line-height: 1.45;
-        }
-        .tags-manager {
-          margin-top: 12px;
-          display: grid;
-          gap: 8px;
-        }
-        .tags-manager > span {
-          font-size: 0.74rem;
-          font-weight: 600;
-          color: #495d52;
-        }
-        .tag-chips-wrap {
-          display: flex;
-          flex-wrap: wrap;
-          gap: 6px;
-        }
-        .tag-chip {
-          display: inline-flex;
-          align-items: center;
-          gap: 4px;
-          background: #eef2eb;
-          color: var(--ink);
-          font-size: 0.72rem;
-          font-weight: 600;
-          padding: 3px 8px;
-          border-radius: 4px;
-        }
-        .tag-chip button {
-          background: none;
-          border: none;
-          color: #7b8a82;
-          font-size: 0.7rem;
-          cursor: pointer;
-        }
-        .tag-input-row {
-          display: flex;
-          gap: 6px;
-        }
-        .tag-input-row input {
-          flex: 1;
-          padding: 6px 8px;
-          border: 1px solid #d5dbd3;
-          border-radius: 6px;
-          font-size: 0.78rem;
-        }
-        .media-modal-backdrop {
-          position: fixed;
-          inset: 0;
-          background: rgba(0, 0, 0, 0.45);
-          backdrop-filter: blur(4px);
-          z-index: 1000;
-          display: grid;
-          place-items: center;
-          padding: 20px;
-        }
-        .media-modal-card {
-          background: #ffffff;
-          width: min(900px, 95vw);
-          max-height: 85vh;
-          border-radius: 12px;
-          box-shadow: 0 20px 60px rgba(0, 0, 0, 0.15);
-          display: flex;
-          flex-direction: column;
-          overflow: hidden;
-        }
-        .media-modal-header {
-          padding: 16px 20px;
-          border-bottom: 1px solid #e6eae2;
-          display: flex;
-          justify-content: space-between;
-          align-items: center;
-        }
-        .media-modal-header h3 {
-          margin: 0;
-          font-size: 1.15rem;
-        }
-        .close-btn {
-          background: none;
-          border: none;
-          font-size: 1.1rem;
-          color: #73817a;
-          cursor: pointer;
-        }
-        .media-modal-toolbar {
-          padding: 12px 20px;
-          background: #f7f9f6;
-          border-bottom: 1px solid #e6eae2;
-          display: flex;
-          gap: 12px;
-        }
-        .media-modal-toolbar input {
-          flex: 1;
-          padding: 8px 12px;
-          border: 1px solid #d5dbd3;
-          border-radius: 6px;
-          font-size: 0.8rem;
-        }
-        .media-modal-grid {
-          padding: 20px;
-          overflow-y: auto;
-          display: grid;
-          grid-template-columns: repeat(auto-fill, minmax(180px, 1fr));
-          gap: 16px;
-        }
-        .media-item-card {
-          border: 1px solid #e2e6de;
-          border-radius: 8px;
-          overflow: hidden;
-          cursor: pointer;
-          background: #ffffff;
-          transition: 0.15s;
-        }
-        .media-item-card:hover {
-          border-color: #247a72;
-          transform: translateY(-2px);
-          box-shadow: 0 4px 12px rgba(0, 0, 0, 0.08);
-        }
-        .media-item-card img {
-          width: 100%;
-          height: 120px;
-          object-fit: cover;
-        }
-        .media-item-path {
-          display: block;
-          padding: 6px 8px;
-          font-size: 0.65rem;
-          color: #73817a;
-          overflow: hidden;
-          text-overflow: ellipsis;
-          white-space: nowrap;
-        }
-        @media (max-width: 950px) {
-          .studio-workspace {
-            grid-template-columns: 1fr;
-          }
-          .studio-sidebar {
-            border-left: none;
-            border-top: 1px solid #e2e6de;
-            position: static;
-          }
-        }
-      `}</style>
     </div>
   );
 }

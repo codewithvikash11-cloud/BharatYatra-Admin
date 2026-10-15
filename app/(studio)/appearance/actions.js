@@ -11,13 +11,14 @@ export async function updateAppearanceMedia(formData) {
   if (!session) throw new Error('Unauthorized');
 
   const slot = formData.get('slot');
+  const storage_path_param = formData.get('storage_path');
   const public_url = formData.get('public_url');
 
-  if (!slot || !public_url) {
+  if ((!slot && !storage_path_param) || !public_url) {
     throw new Error('Missing required fields');
   }
 
-  const storage_path = `site/home/${slot}`;
+  const storage_path = storage_path_param || (slot.startsWith('site/') ? slot : `site/home/${slot}`);
 
   await prisma.media_assets.upsert({
     where: { storage_path },
@@ -26,6 +27,5 @@ export async function updateAppearanceMedia(formData) {
   });
 
   revalidatePath('/appearance');
-  revalidatePath('/', 'layout'); // try to invalidate the public site homepage if it's running in same env, though they are separate apps. 
-  // We can just rely on the public site revalidating naturally or being dynamic
+  revalidatePath('/', 'layout');
 }
